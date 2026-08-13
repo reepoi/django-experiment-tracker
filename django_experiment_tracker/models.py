@@ -44,7 +44,7 @@ class Tag(models.Model):
         return self.tag_value
 
 
-class ParameterEnumType(models.TextChoices):
+class ParameterType(models.TextChoices):
     STRING = ('str', _('String'))
     BOOL = ('bool', _('Boolean'))
     INT = ('int', _('Integer'))
@@ -57,23 +57,13 @@ class ParameterEnum(models.Model):
     """
     parameter_enum_name = models.CharField(max_length=100, unique=True)
     parameter_enum_description = models.CharField(max_length=100, blank=True)
-    parameter_enum_type = models.CharField(max_length=max(map(len, ParameterEnumType)), choices=ParameterEnumType)
+    parameter_enum_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType)
 
     def __str__(self):
-        return f'{self.parameter_enum_name} ({ParameterEnumType(self.parameter_enum_type).label})'
+        return f'{self.parameter_enum_name} ({ParameterType(self.parameter_enum_type).label})'
 
     def parse_value(self, value):
-        match self.parameter_enum_type:
-            case ParameterEnumType.BOOL:
-                if value != 'True' and value != 'False':
-                    raise ValueError("Boolean string value must be either 'True' or 'False'")
-                return value == 'True'
-            case ParameterEnumType.INT:
-                return int(value)
-            case ParameterEnumType.FLOAT:
-                return float(value)
-            case _:
-                return value
+        return Parameter.parse_value(self.parameter_enum_type, value)
 
 
 class ParameterEnumValue(models.Model):
@@ -88,9 +78,12 @@ class ParameterEnumValue(models.Model):
 
     def clean(self):
         try:
-            self.parameter_enum_value = str(self.parameter_enum.parse_value(self.parameter_enum_value))
+            self.parameter_enum_value = str(self.parse())
         except ValueError as e:
             raise ValidationError(str(e))
+
+    def parse(self):
+        return self.parameter_enum.parse_value(self.parameter_enum_value)
 
 
 class Parameter(models.Model):
@@ -100,10 +93,25 @@ class Parameter(models.Model):
     parameter_name = models.CharField(max_length=100, unique=True)
     parameter_description = models.CharField(max_length=100, blank=True)
     parameter_enum = models.ForeignKey(ParameterEnum, blank=True, null=True, on_delete=models.PROTECT)
+    parameter_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType)
     parameter_default_value = models.CharField(max_length=100)
 
     def __str__(self):
         return f'{self.parameter_name} ({self.parameter_default_value})'
+
+    @staticmethod
+    def parse_value(typ, value):
+        match typ:
+            case ParameterType.BOOL:
+                if value != 'True' and value != 'False':
+                    raise ValueError("Boolean string value must be either 'True' or 'False'")
+                return value == 'True'
+            case ParameterType.INT:
+                return int(value)
+            case ParameterType.FLOAT:
+                return float(value)
+            case _:
+                return value
 
 
 class ParameterGroup(models.Model):
@@ -115,6 +123,30 @@ class ParameterGroup(models.Model):
         return self.parameter_group_name
 
 
+class ParameterValue(models.Model):
+    parameter_group = models.ForeignKey(ParameterGroup, on_delete=models.CASCADE)
+    parameter = models.ForeignKey(Parameter, on_delete=models.CASCADE)
+    parameter_value = models.CharField(max_length=100)
+
+    class Meta:
+        abstract = True
+
+    @classmethod
+    def get_constraints(cls, parameterized_model_field_name):
+        return [
+            models.UniqueConstraint(
+                fields=[parameterized_model_field_name, 'parameter_group', 'parameter'],
+                name=f'{parameterized_model_field_name}_group_and_parameter_alt_key',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.parameter_group}, {self.parameter}, {self.parameter_value}'
+
+    def parse(self):
+        return Parameter.parse_value(self.parameter.parameter_type, self.parameter_value)
+
+
 class Experiment(models.Model):
     PREFIX_ALT_ID = 'exp_'
 
@@ -123,10 +155,34 @@ class Experiment(models.Model):
     time_created = models.DateTimeField(blank=True, db_default=models.functions.Now())
     time_completed = models.DateTimeField(blank=True, null=True)
     exit_code = models.IntegerField(blank=True, null=True)
-    tags = models.ManyToManyField(Tag)
+    tags = models.ManyToManyField(Tag, blank=True)
 
     class Meta:
         abstract = True
+
+    def __str__(self):
+        return self.alt_id
+
+
+class SharedFile(models.Model):
+    PREFIX_ALT_ID = 'ds_'
+
+    alt_id = models.CharField(max_length=8+len(PREFIX_ALT_ID), unique=True, editable=False, db_default=db_default_random_string(4, PREFIX_ALT_ID))
+    git_commit = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_related', related_query_name='%(app_label)s_%(class)ss')
+    time_created = models.DateTimeField(blank=True, auto_now_add=True, db_default=models.functions.Now())
+    shared_file_name = models.CharField(max_length=100)
+    shared_file_description = models.CharField(max_length=100, blank=True)
+    tags = models.ManyToManyField(Tag, blank=True)
+
+    class Meta:
+        abstract = True
+        # constraints = [
+        #     models.UniqueConstraint(fields=['git_commit', 'shared_file_name'], name='git_commit_and_shared_file_name_alt_key')
+        # ]
+
+    def __str__(self):
+        return self.alt_id
+
 
 # class OptunaOptimizationDirection(models.TextChoices):
 #     MINIMIZE = ('min', _('Minimize'))

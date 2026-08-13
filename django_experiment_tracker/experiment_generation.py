@@ -1,8 +1,65 @@
+import itertools
+
 from django.db.models import Count, Q
 from django_experiment_tracker.models import Tag
 
 
-def _experiment_fk_field_name(experiment_parameter_model, experiment_model):
+def _build_parameter_choices(group, substitutes):
+    choices = []
+
+    for parameter in group.parameters.all():
+        key = (group.parameter_group_name, parameter.parameter_name)
+
+        if key in substitutes:
+            values = substitutes[key]
+        elif parameter.parameter_enum_id:
+            values = (
+                enum_value.parameter_enum_value
+                for enum_value
+                in parameter.parameter_enum.parameterenumvalue_set.all()
+            )
+        elif parameter.parameter_default_value != "???":
+            values = [parameter.parameter_default_value]
+        else:
+            raise ValueError(
+                f"{group.parameter_group_name}->{parameter.parameter_name}: "
+                "Missing value."
+            )
+
+        choices.append(
+            [(group, parameter, value) for value in values]
+        )
+
+    return choices
+
+
+def _prefetch_parameters(parameter_groups):
+    return parameter_groups.prefetch_related(
+        "parameters__parameter_enum__parameterenumvalue_set"
+    )
+
+
+def build_parameters(parameter_groups, substitutes=None):
+    """Produce one Cartesian product combining all supplied groups."""
+    substitutes = substitutes or {}
+    choices = []
+
+    for group in _prefetch_parameters(parameter_groups):
+        choices.extend(_build_parameter_choices(group, substitutes))
+
+    return itertools.product(*choices)
+
+
+def build_parameters_by_group(parameter_groups, substitutes=None):
+    """Produce a separate Cartesian product for each supplied group."""
+    substitutes = substitutes or {}
+
+    for group in _prefetch_parameters(parameter_groups):
+        choices = _build_parameter_choices(group, substitutes)
+        yield from itertools.product(*choices)
+
+
+def _fk_field_name(experiment_parameter_model, experiment_model):
     for field in experiment_parameter_model._meta.get_fields():
         if getattr(field, "many_to_one", False) and getattr(field, "related_model", None) is experiment_model:
             return field.name
@@ -11,30 +68,30 @@ def _experiment_fk_field_name(experiment_parameter_model, experiment_model):
     )
 
 
-def _experiment_param_query_name(experiment_parameter_model, experiment_model):
-    fk_name = _experiment_fk_field_name(experiment_parameter_model, experiment_model)
+def _param_query_name(experiment_parameter_model, experiment_model):
+    fk_name = _fk_field_name(experiment_parameter_model, experiment_model)
     fk_field = experiment_parameter_model._meta.get_field(fk_name)
     return fk_field.related_query_name()
 
 
-def _experiment_param_accessor_name(experiment_parameter_model, experiment_model):
-    fk_name = _experiment_fk_field_name(experiment_parameter_model, experiment_model)
+def _param_accessor_name(experiment_parameter_model, experiment_model):
+    fk_name = _fk_field_name(experiment_parameter_model, experiment_model)
     fk_field = experiment_parameter_model._meta.get_field(fk_name)
     return fk_field.remote_field.get_accessor_name()
 
 
-def get_or_create_experiment(
+def get_or_create_parameterized_model(
     *,
-    experiment_model,
-    experiment_parameter_model,
-    experiment_parameters,
-    experiment_model_kwargs,
+    model,
+    parameter_model,
+    parameters,
+    model_kwargs,
 ):
-    experiment_parameters = list(experiment_parameters)
-    relation_query_name = _experiment_param_query_name(experiment_parameter_model, experiment_model)
+    parameters = list(parameters)
+    relation_query_name = _param_query_name(parameter_model, model)
 
     q = Q()
-    for (parameter_group, parameter), parameter_value in experiment_parameters:
+    for parameter_group, parameter, parameter_value in parameters:
         q |= Q(
             **{
                 f"{relation_query_name}__parameter_group": parameter_group,
@@ -43,24 +100,24 @@ def get_or_create_experiment(
             }
         )
 
-    candidate_experiments = experiment_model.objects.annotate(
+    candidates = model.objects.annotate(
         total_params=Count(relation_query_name, distinct=True),
         matched_params=Count(relation_query_name, filter=q, distinct=True),
     ).filter(
-        total_params=len(experiment_parameters),
-        matched_params=len(experiment_parameters),
+        total_params=len(parameters),
+        matched_params=len(parameters),
     )
 
-    candidate_count = candidate_experiments.count()
+    candidate_count = candidates.count()
     if candidate_count == 0:
-        experiment_row = experiment_model(**experiment_model_kwargs)
-        experiment_parameter_rows = []
-        fk_name = _experiment_fk_field_name(experiment_parameter_model, experiment_model)
-        for (parameter_group, parameter), parameter_value in experiment_parameters:
-            experiment_parameter_rows.append(
-                experiment_parameter_model(
+        row = model(**model_kwargs)
+        parameter_rows = []
+        fk_name = _fk_field_name(parameter_model, model)
+        for parameter_group, parameter, parameter_value in parameters:
+            parameter_rows.append(
+                parameter_model(
                     **{
-                        fk_name: experiment_row,
+                        fk_name: row,
                         "parameter_group": parameter_group,
                         "parameter": parameter,
                         "parameter_value": parameter_value,
@@ -68,85 +125,85 @@ def get_or_create_experiment(
                 )
             )
     else:
-        assert candidate_count == 1, candidate_experiments
-        relation_accessor = _experiment_param_accessor_name(experiment_parameter_model, experiment_model)
-        experiment_row = candidate_experiments.prefetch_related(relation_accessor).first()
-        experiment_parameter_rows = getattr(experiment_row, relation_accessor).all()
+        assert candidate_count == 1, candidates
+        relation_accessor = _param_accessor_name(parameter_model, model)
+        row = candidates.prefetch_related(relation_accessor).first()
+        parameter_rows = getattr(row, relation_accessor).all()
 
-    return candidate_count != 0, (experiment_row, experiment_parameter_rows)
+    return candidate_count != 0, (row, parameter_rows)
 
 
-def create_experiments_and_parameters(
+def create_parameterized_model_and_parameters(
     *,
-    experiment_model,
-    experiment_parameter_model,
-    experiment_rows_to_create,
-    experiment_parameter_rows_to_create,
+    model,
+    parameter_model,
+    rows_to_create,
+    parameter_rows_to_create,
     tags,
 ):
-    created_experiment_rows = experiment_model.objects.bulk_create(experiment_rows_to_create)
-    through_model = experiment_model.tags.through
-    experiment_fk_name = None
+    created_rows = model.objects.bulk_create(rows_to_create)
+    through_model = model.tags.through
+    fk_name = None
     tag_fk_name = None
     for field in through_model._meta.get_fields():
         if not getattr(field, "many_to_one", False):
             continue
         related_model = getattr(field, "related_model", None)
-        if related_model is experiment_model:
-            experiment_fk_name = field.name
+        if related_model is model:
+            fk_name = field.name
         elif related_model is Tag:
             tag_fk_name = field.name
 
-    if experiment_fk_name is None or tag_fk_name is None:
-        raise ValueError("Could not determine through-model foreign keys for experiment tags.")
+    if fk_name is None or tag_fk_name is None:
+        raise ValueError(f"Could not determine through-model foreign keys for {model.__name__} tags.")
 
     assigned_tags = [
-        through_model(**{f"{experiment_fk_name}_id": experiment.id, f"{tag_fk_name}_id": tag.id})
-        for experiment in created_experiment_rows
+        through_model(**{f"{fk_name}_id": row.id, f"{tag_fk_name}_id": tag.id})
+        for row in created_rows
         for tag in tags
     ]
     through_model.objects.bulk_create(assigned_tags)
-    experiment_parameter_model.objects.bulk_create(experiment_parameter_rows_to_create)
+    parameter_model.objects.bulk_create(parameter_rows_to_create)
 
 
-def create_experiments_from_parameters(
+def create_parameterized_model_from_parameters(
     *,
-    experiment_model,
-    experiment_parameter_model,
-    experiment_parameters,
-    experiment_model_kwargs,
+    model,
+    parameter_model,
+    parameters,
+    model_kwargs,
     tags,
     insert_batch_size=100,
 ):
-    experiment_rows_to_create = []
-    experiment_parameter_rows_to_create = []
-    for eps in experiment_parameters:
-        existed, (experiment_row, experiment_parameter_rows) = get_or_create_experiment(
-            experiment_model=experiment_model,
-            experiment_parameter_model=experiment_parameter_model,
-            experiment_parameters=eps,
-            experiment_model_kwargs=experiment_model_kwargs,
+    rows_to_create = []
+    parameter_rows_to_create = []
+    for eps in parameters:
+        existed, (row, parameter_rows) = get_or_create_parameterized_model(
+            model=model,
+            parameter_model=parameter_model,
+            parameters=eps,
+            model_kwargs=model_kwargs,
         )
         if not existed:
-            experiment_rows_to_create.append(experiment_row)
-            experiment_parameter_rows_to_create.extend(experiment_parameter_rows)
+            rows_to_create.append(row)
+            parameter_rows_to_create.extend(parameter_rows)
 
-        if len(experiment_rows_to_create) >= insert_batch_size:
-            create_experiments_and_parameters(
-                experiment_model=experiment_model,
-                experiment_parameter_model=experiment_parameter_model,
-                experiment_rows_to_create=experiment_rows_to_create,
-                experiment_parameter_rows_to_create=experiment_parameter_rows_to_create,
+        if len(rows_to_create) >= insert_batch_size:
+            create_parameterized_model_and_parameters(
+                model=model,
+                parameter_model=parameter_model,
+                rows_to_create=rows_to_create,
+                parameter_rows_to_create=parameter_rows_to_create,
                 tags=tags,
             )
-            experiment_rows_to_create = []
-            experiment_parameter_rows_to_create = []
+            rows_to_create = []
+            parameter_rows_to_create = []
 
-    if experiment_rows_to_create:
-        create_experiments_and_parameters(
-            experiment_model=experiment_model,
-            experiment_parameter_model=experiment_parameter_model,
-            experiment_rows_to_create=experiment_rows_to_create,
-            experiment_parameter_rows_to_create=experiment_parameter_rows_to_create,
+    if rows_to_create:
+        create_parameterized_model_and_parameters(
+            model=model,
+            parameter_model=parameter_model,
+            rows_to_create=rows_to_create,
+            parameter_rows_to_create=parameter_rows_to_create,
             tags=tags,
         )

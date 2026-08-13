@@ -13,14 +13,14 @@ def _build_parameter_choices(group, substitutes):
         if key in substitutes:
             values = substitutes[key]
         elif parameter.parameter_enum_id:
-            values = (
+            values = [
                 enum_value.parameter_enum_value
                 for enum_value
                 in parameter.parameter_enum.parameterenumvalue_set.all()
-            )
-        elif parameter.parameter_default_value != "???":
-            values = [parameter.parameter_default_value]
+            ]
         else:
+            values = [parameter.parameter_default_value]
+        if '???' in values:
             raise ValueError(
                 f"{group.parameter_group_name}->{parameter.parameter_name}: "
                 "Missing value."
@@ -184,7 +184,9 @@ def create_parameterized_model_from_parameters(
             parameters=eps,
             model_kwargs=model_kwargs,
         )
-        if not existed:
+        if existed:
+            row.tags.add(*tags)
+        else:
             rows_to_create.append(row)
             parameter_rows_to_create.extend(parameter_rows)
 

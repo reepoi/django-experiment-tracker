@@ -108,6 +108,9 @@ def get_or_create_parameterized_model(
         matched_params=len(parameters),
     )
 
+    if 'git_commit_valid_for' in model_kwargs:
+        candidates = candidates.filter(git_commit_valid_for=model_kwargs['git_commit_valid_for'])
+
     candidate_count = candidates.count()
     if candidate_count == 0:
         row = model(**model_kwargs)

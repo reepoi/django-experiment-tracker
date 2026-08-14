@@ -151,7 +151,8 @@ class Experiment(models.Model):
     PREFIX_ALT_ID = 'exp_'
 
     alt_id = models.CharField(max_length=8+len(PREFIX_ALT_ID), unique=True, editable=False, db_default=db_default_random_string(4, PREFIX_ALT_ID))
-    git_commit = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_related', related_query_name='%(app_label)s_%(class)ss')
+    git_commit_created = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_created_related', related_query_name='%(app_label)s_%(class)ss_created')
+    git_commit_valid_for = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_valid_for_related', related_query_name='%(app_label)s_%(class)ss_valid_for')
     time_created = models.DateTimeField(blank=True, db_default=models.functions.Now())
     time_completed = models.DateTimeField(blank=True, null=True)
     exit_code = models.IntegerField(blank=True, null=True)
@@ -168,7 +169,8 @@ class SharedFile(models.Model):
     PREFIX_ALT_ID = 'ds_'
 
     alt_id = models.CharField(max_length=8+len(PREFIX_ALT_ID), unique=True, editable=False, db_default=db_default_random_string(4, PREFIX_ALT_ID))
-    git_commit = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_related', related_query_name='%(app_label)s_%(class)ss')
+    git_commit_created = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_created_related', related_query_name='%(app_label)s_%(class)ss_created')
+    git_commit_valid_for = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_valid_for_related', related_query_name='%(app_label)s_%(class)ss_valid_for')
     time_created = models.DateTimeField(blank=True, auto_now_add=True, db_default=models.functions.Now())
     shared_file_name = models.CharField(max_length=100)
     shared_file_description = models.CharField(max_length=100, blank=True)

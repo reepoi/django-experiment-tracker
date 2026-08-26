@@ -107,7 +107,10 @@ class Parameter(models.Model):
                     raise ValueError("Boolean string value must be either 'True' or 'False'")
                 return value == 'True'
             case ParameterType.INT:
-                return int(value)
+                base = 10
+                if value.startswith('0x'):
+                    base = 16
+                return int(value, base)
             case ParameterType.FLOAT:
                 return float(value)
             case _:

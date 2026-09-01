@@ -135,7 +135,7 @@ class ParameterValue(models.Model):
         abstract = True
 
     @classmethod
-    def get_constraints(cls, parameterized_model_field_name):
+    def parameter_value_constraints(cls, parameterized_model_field_name):
         return [
             models.UniqueConstraint(
                 fields=[parameterized_model_field_name, 'parameter_group', 'parameter'],

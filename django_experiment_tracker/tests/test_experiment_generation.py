@@ -1,9 +1,21 @@
 import pytest
 from django.db import connection, models
 
-from django_experiment_tracker.experiment_generation import create_experiments_from_parameters
+from django_experiment_tracker.experiment_generation import (
+    build_parameters_by_group,
+    create_parameterized_model_from_parameters,
+)
 from django_experiment_tracker.models import Experiment as BaseExperiment
-from django_experiment_tracker.models import GitCommit, Parameter, ParameterGroup, Tag
+from django_experiment_tracker.models import (
+    GitCommit,
+    Parameter,
+    ParameterEnum,
+    ParameterEnumValue,
+    ParameterGroup,
+    ParameterGroupParameter,
+    ParameterType,
+    Tag,
+)
 
 
 class DemoExperiment(BaseExperiment):
@@ -61,14 +73,22 @@ def parameter_setup(db):
     group_b = ParameterGroup.objects.create(parameter_group_name="group_b")
     param_x = Parameter.objects.create(
         parameter_name="x",
-        parameter_default_value="1",
+        parameter_type=ParameterType.INT,
     )
     param_y = Parameter.objects.create(
         parameter_name="y",
+        parameter_type=ParameterType.INT,
+    )
+    ParameterGroupParameter.objects.create(
+        parameter_group=group_a,
+        parameter=param_x,
+        parameter_default_value="1",
+    )
+    ParameterGroupParameter.objects.create(
+        parameter_group=group_b,
+        parameter=param_y,
         parameter_default_value="2",
     )
-    group_a.parameters.add(param_x)
-    group_b.parameters.add(param_y)
     return {
         "group_a": group_a,
         "group_b": group_b,
@@ -79,8 +99,8 @@ def parameter_setup(db):
 
 def _params_case(parameter_setup, x_val="1", y_val="2"):
     return [
-        ((parameter_setup["group_a"], parameter_setup["param_x"]), x_val),
-        ((parameter_setup["group_b"], parameter_setup["param_y"]), y_val),
+        (parameter_setup["group_a"], parameter_setup["param_x"], x_val),
+        (parameter_setup["group_b"], parameter_setup["param_y"], y_val),
     ]
 
 
@@ -88,11 +108,14 @@ def _params_case(parameter_setup, x_val="1", y_val="2"):
 def test_creates_new_experiment_when_no_match(git_commit, tags, parameter_setup, experiment_models):
     experiment_model, experiment_parameter_model = experiment_models
 
-    create_experiments_from_parameters(
-        experiment_model=experiment_model,
-        experiment_parameter_model=experiment_parameter_model,
-        experiment_parameters=[_params_case(parameter_setup)],
-        experiment_model_kwargs={"git_commit": git_commit},
+    create_parameterized_model_from_parameters(
+        model=experiment_model,
+        parameter_model=experiment_parameter_model,
+        parameters=[_params_case(parameter_setup)],
+        model_kwargs={
+            "git_commit_created": git_commit,
+            "git_commit_valid_for": git_commit,
+        },
         tags=tags,
         insert_batch_size=100,
     )
@@ -108,19 +131,25 @@ def test_reuses_existing_experiment_for_same_parameter_set(git_commit, tags, par
     experiment_model, experiment_parameter_model = experiment_models
     params = _params_case(parameter_setup)
 
-    create_experiments_from_parameters(
-        experiment_model=experiment_model,
-        experiment_parameter_model=experiment_parameter_model,
-        experiment_parameters=[params],
-        experiment_model_kwargs={"git_commit": git_commit},
+    create_parameterized_model_from_parameters(
+        model=experiment_model,
+        parameter_model=experiment_parameter_model,
+        parameters=[params],
+        model_kwargs={
+            "git_commit_created": git_commit,
+            "git_commit_valid_for": git_commit,
+        },
         tags=tags,
         insert_batch_size=100,
     )
-    create_experiments_from_parameters(
-        experiment_model=experiment_model,
-        experiment_parameter_model=experiment_parameter_model,
-        experiment_parameters=[params],
-        experiment_model_kwargs={"git_commit": git_commit},
+    create_parameterized_model_from_parameters(
+        model=experiment_model,
+        parameter_model=experiment_parameter_model,
+        parameters=[params],
+        model_kwargs={
+            "git_commit_created": git_commit,
+            "git_commit_valid_for": git_commit,
+        },
         tags=tags,
         insert_batch_size=100,
     )
@@ -138,14 +167,54 @@ def test_batch_insert_creates_multiple_experiments(git_commit, tags, parameter_s
         _params_case(parameter_setup, x_val="1", y_val="4"),
     ]
 
-    create_experiments_from_parameters(
-        experiment_model=experiment_model,
-        experiment_parameter_model=experiment_parameter_model,
-        experiment_parameters=cases,
-        experiment_model_kwargs={"git_commit": git_commit},
+    create_parameterized_model_from_parameters(
+        model=experiment_model,
+        parameter_model=experiment_parameter_model,
+        parameters=cases,
+        model_kwargs={
+            "git_commit_created": git_commit,
+            "git_commit_valid_for": git_commit,
+        },
         tags=tags,
         insert_batch_size=2,
     )
 
     assert experiment_model.objects.count() == 3
     assert experiment_parameter_model.objects.count() == 6
+
+
+@pytest.mark.django_db
+def test_parameter_configuration_is_specific_to_group():
+    group_a = ParameterGroup.objects.create(parameter_group_name="group_a")
+    group_b = ParameterGroup.objects.create(parameter_group_name="group_b")
+    parameter = Parameter.objects.create(
+        parameter_name="shared",
+        parameter_type=ParameterType.INT,
+    )
+    parameter_enum = ParameterEnum.objects.create(
+        parameter_enum_name="choices",
+        parameter_enum_type=ParameterType.INT,
+    )
+    ParameterEnumValue.objects.create(
+        parameter_enum=parameter_enum,
+        parameter_enum_value="2",
+    )
+    ParameterEnumValue.objects.create(
+        parameter_enum=parameter_enum,
+        parameter_enum_value="3",
+    )
+    ParameterGroupParameter.objects.create(
+        parameter_group=group_a,
+        parameter=parameter,
+        parameter_default_value="1",
+    )
+    ParameterGroupParameter.objects.create(
+        parameter_group=group_b,
+        parameter=parameter,
+        parameter_enum=parameter_enum,
+        parameter_default_value="9",
+    )
+
+    cases = list(build_parameters_by_group(ParameterGroup.objects.order_by("id")))
+
+    assert [case[0][2] for case in cases] == ["1", "2", "3"]

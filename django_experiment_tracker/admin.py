@@ -22,7 +22,7 @@ class ParameterEnumAdmin(admin.ModelAdmin):
 
 
 class ParameterGroupInline(admin.TabularInline):
-    model = models.ParameterGroup.parameters.through
+    model = models.ParameterGroupParameter
     min_num = 0
     extra = 0
 
@@ -35,7 +35,7 @@ class ParameterAdmin(admin.ModelAdmin):
 
 
 class ParameterInline(admin.TabularInline):
-    model = models.ParameterGroup.parameters.through
+    model = models.ParameterGroupParameter
     min_num = 0
     extra = 0
 

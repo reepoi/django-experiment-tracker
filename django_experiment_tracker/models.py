@@ -92,12 +92,10 @@ class Parameter(models.Model):
     """
     parameter_name = models.CharField(max_length=100, unique=True)
     parameter_description = models.CharField(max_length=100, blank=True)
-    parameter_enum = models.ForeignKey(ParameterEnum, blank=True, null=True, on_delete=models.PROTECT)
     parameter_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType)
-    parameter_default_value = models.CharField(max_length=100)
 
     def __str__(self):
-        return f'{self.parameter_name} ({self.parameter_default_value})'
+        return self.parameter_name
 
     @staticmethod
     def parse_value(typ, value):
@@ -120,10 +118,25 @@ class Parameter(models.Model):
 class ParameterGroup(models.Model):
     parameter_group_name = models.CharField(max_length=100, unique=True)
     parameter_group_description = models.CharField(max_length=100, blank=True)
-    parameters = models.ManyToManyField(Parameter, blank=True)
+    parameters = models.ManyToManyField(Parameter, through='ParameterGroupParameter', blank=True)
 
     def __str__(self):
         return self.parameter_group_name
+
+
+class ParameterGroupParameter(models.Model):
+    parameter_group = models.ForeignKey(ParameterGroup, on_delete=models.CASCADE, related_name='parameter_memberships')
+    parameter = models.ForeignKey(Parameter, on_delete=models.CASCADE, related_name='parameter_group_memberships')
+    parameter_enum = models.ForeignKey(ParameterEnum, blank=True, null=True, on_delete=models.PROTECT)
+    parameter_default_value = models.CharField(max_length=100)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['parameter_group', 'parameter'], name='group_parameter_alt_key'),
+        ]
+
+    def __str__(self):
+        return f'{self.parameter_group}->{self.parameter} ({self.parameter_default_value})'
 
 
 class ParameterValue(models.Model):

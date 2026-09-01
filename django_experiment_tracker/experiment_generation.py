@@ -7,19 +7,20 @@ from django_experiment_tracker.models import Tag
 def _build_parameter_choices(group, substitutes):
     choices = []
 
-    for parameter in group.parameters.all():
+    for membership in group.parameter_memberships.all():
+        parameter = membership.parameter
         key = (group.parameter_group_name, parameter.parameter_name)
 
         if key in substitutes:
             values = substitutes[key]
-        elif parameter.parameter_enum_id:
+        elif membership.parameter_enum_id:
             values = [
                 enum_value.parameter_enum_value
                 for enum_value
-                in parameter.parameter_enum.parameterenumvalue_set.all()
+                in membership.parameter_enum.parameterenumvalue_set.all()
             ]
         else:
-            values = [parameter.parameter_default_value]
+            values = [membership.parameter_default_value]
         if '???' in values:
             raise ValueError(
                 f"{group.parameter_group_name}->{parameter.parameter_name}: "
@@ -35,7 +36,8 @@ def _build_parameter_choices(group, substitutes):
 
 def _prefetch_parameters(parameter_groups):
     return parameter_groups.prefetch_related(
-        "parameters__parameter_enum__parameterenumvalue_set"
+        "parameter_memberships__parameter",
+        "parameter_memberships__parameter_enum__parameterenumvalue_set",
     )
 
 

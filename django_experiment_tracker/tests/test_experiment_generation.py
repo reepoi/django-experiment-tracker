@@ -18,6 +18,7 @@ from django_experiment_tracker.models import (
     ParameterGroup,
     ParameterGroupParameter,
     ParameterType,
+    ParameterValue,
     Tag,
 )
 
@@ -27,11 +28,8 @@ class DemoExperiment(BaseExperiment):
         app_label = "django_experiment_tracker"
 
 
-class DemoExperimentParameter(models.Model):
+class DemoExperimentParameter(ParameterValue):
     experiment = models.ForeignKey(DemoExperiment, on_delete=models.CASCADE)
-    parameter_group = models.ForeignKey(ParameterGroup, on_delete=models.CASCADE)
-    parameter = models.ForeignKey(Parameter, on_delete=models.CASCADE)
-    parameter_value = models.CharField(max_length=100)
 
     class Meta:
         app_label = "django_experiment_tracker"
@@ -222,6 +220,64 @@ def test_parameter_configuration_is_specific_to_group():
     cases = list(build_parameters_by_group(ParameterGroup.objects.order_by("id")))
 
     assert [case[0][2] for case in cases] == ["1", "2", "3"]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("parameter_type", "value", "expected"),
+    [
+        (ParameterType.BOOL, "True", "True"),
+        (ParameterType.INT, "0x10", "16"),
+        (ParameterType.FLOAT, "1e2", "100.0"),
+        (ParameterType.HEX, "0X00FF", "0xff"),
+    ],
+)
+def test_parameter_values_are_normalized_before_saving(
+    parameter_type, value, expected, git_commit, experiment_models
+):
+    experiment_model, experiment_parameter_model = experiment_models
+    group = ParameterGroup.objects.create(parameter_group_name=f"group_{parameter_type}")
+    parameter = Parameter.objects.create(
+        parameter_name=f"parameter_{parameter_type}",
+        parameter_type=parameter_type,
+    )
+    parameter_enum = ParameterEnum.objects.create(
+        parameter_enum_name=f"enum_{parameter_type}",
+        parameter_enum_type=parameter_type,
+    )
+
+    enum_value = ParameterEnumValue.objects.create(
+        parameter_enum=parameter_enum,
+        parameter_enum_value=value,
+    )
+    group_parameter = ParameterGroupParameter.objects.create(
+        parameter_group=group,
+        parameter=parameter,
+        parameter_default_value=value,
+    )
+    experiment = experiment_model.objects.create(
+        git_commit_created=git_commit,
+        git_commit_valid_for=git_commit,
+    )
+    parameter_value = experiment_parameter_model.objects.create(
+        experiment=experiment,
+        parameter_group=group,
+        parameter=parameter,
+        parameter_value=value,
+    )
+
+    enum_value.refresh_from_db()
+    group_parameter.refresh_from_db()
+    parameter_value.refresh_from_db()
+
+    assert enum_value.parameter_enum_value == expected
+    assert group_parameter.parameter_default_value == expected
+    assert parameter_value.parameter_value == expected
+
+
+def test_parameter_formats_parsed_hex_values():
+    assert Parameter.parse_value(ParameterType.HEX, "ff") == 255
+    assert Parameter.format_value(ParameterType.HEX, 255) == "0xff"
 
 
 def _clean_frame_parameter_sets(parameter_sets):

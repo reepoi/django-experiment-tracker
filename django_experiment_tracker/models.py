@@ -50,6 +50,7 @@ class ParameterType(models.TextChoices):
     STRING = ('str', _('String'))
     BOOL = ('bool', _('Boolean'))
     INT = ('int', _('Integer'))
+    HEX = ('hex', _('Hexadecimal'))
     FLOAT = ('float', _('Float'))
 
 
@@ -80,9 +81,16 @@ class ParameterEnumValue(models.Model):
     def __str__(self):
         return self.parameter_enum_value
 
+    def save(self, *args, **kwargs):
+        self.parameter_enum_value = Parameter.format_value(
+            self.parameter_enum.parameter_enum_type,
+            Parameter.parse_value(self.parameter_enum.parameter_enum_type, self.parameter_enum_value),
+        )
+        return super().save(*args, **kwargs)
+
     def clean(self):
         try:
-            self.parameter_enum_value = str(self.parse())
+            self.parameter_enum_value = Parameter.format_value(self.parameter_enum.parameter_enum_type, self.parse())
         except ValueError as e:
             raise ValidationError(str(e))
 
@@ -114,10 +122,18 @@ class Parameter(models.Model):
                 if value.startswith('0x'):
                     base = 16
                 return int(value, base)
+            case ParameterType.HEX:
+                return int(value, 16)
             case ParameterType.FLOAT:
                 return float(value)
             case _:
                 return value
+
+    @staticmethod
+    def format_value(typ, value):
+        if typ == ParameterType.HEX:
+            return hex(value)
+        return str(value)
 
 
 class ParameterGroup(models.Model):
@@ -145,6 +161,13 @@ class ParameterGroupParameter(models.Model):
     def __str__(self):
         return f'{self.parameter_group}->{self.parameter} ({self.parameter_default_value})'
 
+    def save(self, *args, **kwargs):
+        self.parameter_default_value = Parameter.format_value(
+            self.parameter.parameter_type,
+            Parameter.parse_value(self.parameter.parameter_type, self.parameter_default_value),
+        )
+        return super().save(*args, **kwargs)
+
 
 class ParameterValue(models.Model):
     id = models.AutoField(primary_key=True, db_column='parameter_value_id')
@@ -166,6 +189,13 @@ class ParameterValue(models.Model):
 
     def __str__(self):
         return f'{self.parameter_group}, {self.parameter}, {self.parameter_value}'
+
+    def save(self, *args, **kwargs):
+        self.parameter_value = Parameter.format_value(
+            self.parameter.parameter_type,
+            Parameter.parse_value(self.parameter.parameter_type, self.parameter_value),
+        )
+        return super().save(*args, **kwargs)
 
     def parse(self):
         return Parameter.parse_value(self.parameter.parameter_type, self.parameter_value)

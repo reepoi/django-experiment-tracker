@@ -9,16 +9,20 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "django>=5.2.14",
+    "duckdb>=1.0",
+    "polars>=1.0",
+    "pyarrow>=14.0",
 ]
 
 [dependency-groups]
 dev = [
+    "marimo>=0.23.16",
     "pytest>=8.4.2",
     "pytest-django>=4.11.1",
 ]
 
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = ""
+DJANGO_SETTINGS_MODULE = "django_experiment_tracker.test_settings"
 
 [build-system]
 requires = ["hatchling"]

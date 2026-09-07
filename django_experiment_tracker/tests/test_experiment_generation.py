@@ -228,7 +228,7 @@ def test_parameter_configuration_is_specific_to_group():
     [
         (ParameterType.BOOL, "True", "True"),
         (ParameterType.INT, "0x10", "16"),
-        (ParameterType.FLOAT, "1e2", "100.0"),
+        (ParameterType.FLOAT, "1e2", "1e2"),
         (ParameterType.HEX, "0X00FF", "0xff"),
     ],
 )
@@ -278,6 +278,22 @@ def test_parameter_values_are_normalized_before_saving(
 def test_parameter_formats_parsed_hex_values():
     assert Parameter.parse_value(ParameterType.HEX, "ff") == 255
     assert Parameter.format_value(ParameterType.HEX, 255) == "0xff"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (100.0, "1e2"),
+        (0.001, "1e-3"),
+        (-0.0, "-0e0"),
+        (1.2345678901234567, "1.2345678901234567e0"),
+    ],
+)
+def test_parameter_formats_floats_as_compact_scientific_notation(value, expected):
+    formatted_value = Parameter.format_value(ParameterType.FLOAT, value)
+
+    assert formatted_value == expected
+    assert float(formatted_value) == value
 
 
 def _clean_frame_parameter_sets(parameter_sets):

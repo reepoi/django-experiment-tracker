@@ -133,7 +133,37 @@ class Parameter(models.Model):
     def format_value(typ, value):
         if typ == ParameterType.HEX:
             return hex(value)
+        if typ == ParameterType.FLOAT:
+            return Parameter._format_float_value(value)
         return str(value)
+
+    @staticmethod
+    def _format_float_value(value):
+        value_string = repr(value)
+        if value_string in {'inf', '-inf', 'nan'}:
+            return value_string
+
+        sign = ''
+        if value_string.startswith('-'):
+            sign, value_string = '-', value_string[1:]
+        lowercase_value_string = value_string.lower()
+        if 'e' in lowercase_value_string:
+            coefficient, exponent = lowercase_value_string.split('e')
+        else:
+            coefficient, exponent = value_string, '0'
+        decimal_position = coefficient.find('.')
+        if decimal_position == -1:
+            decimal_position = len(coefficient)
+        digits = coefficient.replace('.', '')
+        significant_digits = digits.lstrip('0')
+        if not significant_digits:
+            return f'{sign}0e0'
+        exponent = int(exponent) + decimal_position - (len(digits) - len(significant_digits)) - 1
+        significant_digits = significant_digits.rstrip('0')
+        mantissa = significant_digits[0]
+        if len(significant_digits) > 1:
+            mantissa += f'.{significant_digits[1:]}'
+        return f'{sign}{mantissa}e{exponent}'
 
 
 class ParameterGroup(models.Model):

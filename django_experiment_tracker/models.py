@@ -29,6 +29,7 @@ def db_default_random_string(half_length, prefix=''):
 
 
 class GitCommit(models.Model):
+    id = models.AutoField(primary_key=True, db_column='git_commit_id')
     commit_time = models.DateTimeField()
     branch = models.CharField(max_length=50)
     commit_sha = models.CharField(max_length=40)
@@ -38,6 +39,7 @@ class GitCommit(models.Model):
 
 
 class Tag(models.Model):
+    id = models.AutoField(primary_key=True, db_column='tag_id')
     tag_value = models.CharField(max_length=100, unique=True)
 
     def __str__(self):
@@ -55,6 +57,7 @@ class ParameterEnum(models.Model):
     """
     Enum values assignable to a parameter.
     """
+    id = models.AutoField(primary_key=True, db_column='parameter_enum_id')
     parameter_enum_name = models.CharField(max_length=100, unique=True)
     parameter_enum_description = models.CharField(max_length=100, blank=True)
     parameter_enum_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType)
@@ -70,6 +73,7 @@ class ParameterEnumValue(models.Model):
     """
     One value in the enumeration of a parameter enum.
     """
+    id = models.AutoField(primary_key=True, db_column='parameter_enum_value_id')
     parameter_enum = models.ForeignKey(ParameterEnum, on_delete=models.CASCADE)
     parameter_enum_value = models.CharField(max_length=100)
 
@@ -90,6 +94,7 @@ class Parameter(models.Model):
     """
     A parameter assingable to an experiment.
     """
+    id = models.AutoField(primary_key=True, db_column='parameter_id')
     parameter_name = models.CharField(max_length=100, unique=True)
     parameter_description = models.CharField(max_length=100, blank=True)
     parameter_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType)
@@ -116,6 +121,7 @@ class Parameter(models.Model):
 
 
 class ParameterGroup(models.Model):
+    id = models.AutoField(primary_key=True, db_column='parameter_group_id')
     parameter_group_name = models.CharField(max_length=100, unique=True)
     parameter_group_description = models.CharField(max_length=100, blank=True)
     parameters = models.ManyToManyField(Parameter, through='ParameterGroupParameter', blank=True)
@@ -125,6 +131,7 @@ class ParameterGroup(models.Model):
 
 
 class ParameterGroupParameter(models.Model):
+    id = models.AutoField(primary_key=True, db_column='parameter_group_parameter_id')
     parameter_group = models.ForeignKey(ParameterGroup, on_delete=models.CASCADE, related_name='parameter_memberships')
     parameter = models.ForeignKey(Parameter, on_delete=models.CASCADE, related_name='parameter_group_memberships')
     parameter_enum = models.ForeignKey(ParameterEnum, blank=True, null=True, on_delete=models.PROTECT)
@@ -140,6 +147,7 @@ class ParameterGroupParameter(models.Model):
 
 
 class ParameterValue(models.Model):
+    id = models.AutoField(primary_key=True, db_column='parameter_value_id')
     parameter_group = models.ForeignKey(ParameterGroup, on_delete=models.CASCADE)
     parameter = models.ForeignKey(Parameter, on_delete=models.CASCADE)
     parameter_value = models.CharField(max_length=100)
@@ -165,7 +173,7 @@ class ParameterValue(models.Model):
 
 class Experiment(models.Model):
     PREFIX_ALT_ID = 'exp_'
-
+    id = models.AutoField(primary_key=True, db_column='experiment_id')
     alt_id = models.CharField(max_length=8+len(PREFIX_ALT_ID), unique=True, editable=False, db_default=db_default_random_string(4, PREFIX_ALT_ID))
     git_commit_created = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_created_related', related_query_name='%(app_label)s_%(class)ss_created')
     git_commit_valid_for = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_valid_for_related', related_query_name='%(app_label)s_%(class)ss_valid_for')
@@ -183,7 +191,7 @@ class Experiment(models.Model):
 
 class SharedFile(models.Model):
     PREFIX_ALT_ID = 'ds_'
-
+    id = models.AutoField(primary_key=True, db_column='shared_file_id')
     alt_id = models.CharField(max_length=8+len(PREFIX_ALT_ID), unique=True, editable=False, db_default=db_default_random_string(4, PREFIX_ALT_ID))
     git_commit_created = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_created_related', related_query_name='%(app_label)s_%(class)ss_created')
     git_commit_valid_for = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_valid_for_related', related_query_name='%(app_label)s_%(class)ss_valid_for')

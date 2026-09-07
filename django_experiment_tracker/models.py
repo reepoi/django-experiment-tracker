@@ -102,6 +102,7 @@ class Parameter(models.Model):
     """
     A parameter assingable to an experiment.
     """
+    PLACEHOLDER = '???'
     id = models.AutoField(primary_key=True, db_column='parameter_id')
     parameter_name = models.CharField(max_length=100, unique=True)
     parameter_description = models.CharField(max_length=100, blank=True)
@@ -112,6 +113,8 @@ class Parameter(models.Model):
 
     @staticmethod
     def parse_value(typ, value):
+        if value == Parameter.PLACEHOLDER:
+            return value
         match typ:
             case ParameterType.BOOL:
                 if value != 'True' and value != 'False':
@@ -131,6 +134,8 @@ class Parameter(models.Model):
 
     @staticmethod
     def format_value(typ, value):
+        if value == Parameter.PLACEHOLDER:
+            return value
         if typ == ParameterType.HEX:
             return hex(value)
         if typ == ParameterType.FLOAT:

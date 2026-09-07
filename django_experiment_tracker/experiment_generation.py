@@ -1,11 +1,232 @@
+import hashlib
 import itertools
 
+import polars as pl
+from django.db import transaction
 from django.db.models import Count, Q
+from django.db.models.query import QuerySet
 from django_experiment_tracker.models import Tag
 
+from django_experiment_tracker.models import ParameterGroup
 
-def _build_parameter_choices(group, substitutes):
-    choices = []
+
+def build_experiment_df(connection, parameter_group_names, derived_experiment_funcs=()):
+    """Build complete experiment parameter sets from tracker tables with SQL and Polars."""
+    placeholders = ", ".join(["?"] * len(parameter_group_names))
+    base_pgp = connection.execute(
+        f"""
+        select
+            parameter_group_name,
+            parameter_name,
+            parameter_default_value,
+            parameter_group_id,
+            parameter_id,
+            parameter_enum_id
+        from django_experiment_tracker_parametergroup
+        join django_experiment_tracker_parametergroupparameter using (parameter_group_id)
+        join django_experiment_tracker_parameter using (parameter_id)
+        where parameter_group_name in ({placeholders})
+        """,
+        parameter_group_names,
+    ).pl()
+    enum_values = connection.execute(
+        """
+        select parameter_enum_id, parameter_enum_value
+        from django_experiment_tracker_parameterenum
+        join django_experiment_tracker_parameterenumvalue using (parameter_enum_id)
+        """,
+    ).pl()
+    base_enums = base_pgp.join(enum_values, on="parameter_enum_id", how="inner")
+
+    groups = {
+        key: [row["parameter_enum_value"] for row in group]
+        for key, group in itertools.groupby(
+            base_enums.sort("parameter_group_name", "parameter_name").iter_rows(named=True),
+            key=lambda row: (row["parameter_group_name"], row["parameter_name"]),
+        )
+    }
+    experiment_parameter_rows = []
+    choices = [
+        [
+            {
+                "parameter_group_name": parameter_group_name,
+                "parameter_name": parameter_name,
+                "parameter_value": value,
+            }
+            for value in values
+        ]
+        for (parameter_group_name, parameter_name), values in groups.items()
+    ]
+    for experiment in itertools.product(*choices):
+        experiment_parameters = {
+            (row["parameter_group_name"], row["parameter_name"]): row.copy()
+            for row in experiment
+        }
+        experiment_parameter_sets = [experiment_parameters]
+        for derived_experiment_func in derived_experiment_funcs:
+            experiment_parameter_sets = derived_experiment_func(experiment_parameter_sets)
+        for experiment_parameters in experiment_parameter_sets:
+            experiment_key = ""
+            for row in sorted(
+                experiment_parameters.values(),
+                key=lambda row: (row["parameter_group_name"], row["parameter_name"]),
+            ):
+                experiment_key += "," + ",".join(
+                    (row["parameter_group_name"], row["parameter_name"], row["parameter_value"])
+                )
+            experiment_key = hashlib.sha256(experiment_key.encode("utf-8")).hexdigest()
+            experiment_parameter_rows.extend(
+                {**row, "experiment_key": experiment_key}
+                for row in experiment_parameters.values()
+            )
+
+    selected_parameters = pl.DataFrame(experiment_parameter_rows).unique()
+    experiment_dfs = []
+    for experiment_id, (_, selected_rows) in enumerate(itertools.groupby(
+        selected_parameters.sort("experiment_key").iter_rows(named=True),
+        key=lambda row: row["experiment_key"],
+    )):
+        selected_parameters_df = pl.DataFrame(list(selected_rows)).drop("experiment_key")
+        default_parameters = (
+            base_pgp.lazy()
+            .join(
+                selected_parameters_df.lazy(),
+                on=["parameter_group_name", "parameter_name"],
+                how="anti",
+            )
+            .select(
+                "parameter_group_name",
+                "parameter_name",
+                parameter_value="parameter_default_value",
+            )
+        )
+        experiment_dfs.append(
+            pl.concat([default_parameters, selected_parameters_df.lazy()]).with_columns(
+                experiment_id=experiment_id,
+            )
+        )
+
+    return pl.concat(experiment_dfs).collect()
+
+
+def get_or_create_experiments(
+    connection,
+    experiment_df,
+    *,
+    experiment_model,
+    parameter_model,
+    experiment_parameter_table,
+    model_kwargs,
+    tags=(),
+    database_alias="default",
+):
+    """Fetch exact parameter-set matches or create missing concrete experiments."""
+    match_counts = connection.sql(
+        f"""
+        with expected_counts as (
+            select experiment_id as requested_experiment_id, count(*) as expected_count
+            from experiment_df
+            group by experiment_id
+        ),
+        total_counts as (
+            select experiment_id, count(*) as total_count
+            from {experiment_parameter_table}
+            group by experiment_id
+        ),
+        matched_counts as (
+            select
+                experiment_df.experiment_id as requested_experiment_id,
+                {experiment_parameter_table}.experiment_id as existing_experiment_id,
+                count(*) as matched_count
+            from {experiment_parameter_table}
+            join django_experiment_tracker_parameter using (parameter_id)
+            join django_experiment_tracker_parametergroup using (parameter_group_id)
+            join experiment_df using (parameter_group_name, parameter_name, parameter_value)
+            group by requested_experiment_id, existing_experiment_id
+        )
+        select requested_experiment_id, existing_experiment_id
+        from matched_counts
+        join expected_counts using (requested_experiment_id)
+        join total_counts on total_counts.experiment_id = matched_counts.existing_experiment_id
+        where matched_count = expected_count
+          and total_count = expected_count
+        """
+    ).pl()
+    duplicate_matches = match_counts.group_by("requested_experiment_id").len().filter(pl.col("len") > 1)
+    if duplicate_matches.height:
+        raise ValueError(f"Multiple experiments match parameter sets: {duplicate_matches}")
+    experiment_ids_by_id = dict(
+        match_counts.select("requested_experiment_id", "existing_experiment_id").iter_rows()
+    )
+    experiment_manager = experiment_model.objects.using(database_alias)
+    parameter_manager = parameter_model.objects.using(database_alias)
+    existing_experiments = experiment_manager.in_bulk(experiment_ids_by_id.values())
+    parameter_ids_relation = connection.sql(
+        """
+        select
+            parameter_group_name,
+            parameter_name,
+            parameter_group_id,
+            parameter_id
+        from django_experiment_tracker_parametergroup
+        join django_experiment_tracker_parametergroupparameter using (parameter_group_id)
+        join django_experiment_tracker_parameter using (parameter_id)
+        join experiment_df using (parameter_group_name, parameter_name)
+        group by all
+        """
+    )
+    parameter_ids = {
+        (parameter_group_name, parameter_name): (parameter_group_id, parameter_id)
+        for parameter_group_name, parameter_name, parameter_group_id, parameter_id
+        in parameter_ids_relation.fetchall()
+    }
+    tags = list(tags)
+    fk_name = _fk_field_name(parameter_model, experiment_model)
+    experiment_pks = []
+
+    with transaction.atomic(using=database_alias):
+        for experiment_id, rows in itertools.groupby(
+            experiment_df.sort("experiment_id").iter_rows(named=True),
+            key=lambda row: row["experiment_id"],
+        ):
+            if experiment_id in experiment_ids_by_id:
+                experiment = existing_experiments[experiment_ids_by_id[experiment_id]]
+                experiment.tags.add(*tags)
+            else:
+                experiment = experiment_manager.create(**model_kwargs)
+                parameter_manager.bulk_create(
+                    [
+                        parameter_model(
+                            **{
+                                f"{fk_name}_id": experiment.id,
+                                "parameter_group_id": parameter_ids[
+                                    (row["parameter_group_name"], row["parameter_name"])
+                                ][0],
+                                "parameter_id": parameter_ids[
+                                    (row["parameter_group_name"], row["parameter_name"])
+                                ][1],
+                                "parameter_value": row["parameter_value"],
+                            }
+                        )
+                        for row in rows
+                    ]
+                )
+                experiment.tags.add(*tags)
+            experiment_pks.append(experiment.pk)
+
+    return experiment_manager.filter(pk__in=experiment_pks)
+
+
+def _prefetch_parameters(parameter_groups):
+    return parameter_groups.prefetch_related(
+        "parameter_memberships__parameter",
+        "parameter_memberships__parameter_enum__parameterenumvalue_set",
+    )
+
+
+def build_parameter_group_sweep(group, substitutes=None):
+    choices = {}
+    substitutes = substitutes or {}
 
     for membership in group.parameter_memberships.all():
         parameter = membership.parameter
@@ -26,19 +247,46 @@ def _build_parameter_choices(group, substitutes):
                 f"{group.parameter_group_name}->{parameter.parameter_name}: "
                 "Missing value."
             )
-
-        choices.append(
-            [(group, parameter, value) for value in values]
-        )
+        choices[key] = dict(values=values, pg_p=(group, parameter))
 
     return choices
 
 
-def _prefetch_parameters(parameter_groups):
-    return parameter_groups.prefetch_related(
-        "parameter_memberships__parameter",
-        "parameter_memberships__parameter_enum__parameterenumvalue_set",
-    )
+def build_parameter_sweep(parameter_groups, substitutes=None):
+    substitutes = substitutes or {}
+    choices = {}
+
+    if isinstance(parameter_groups, QuerySet):
+        prefetched_groups = _prefetch_parameters(parameter_groups)
+    else:
+        prefetched_groups = _prefetch_parameters(ParameterGroup.objects.filter(
+            parameter_group_name__in=[pg.parameter_group_name for pg in parameter_groups],
+        ))
+
+    for group in prefetched_groups:
+        choices.update(build_parameter_group_sweep(group, substitutes))
+
+    return choices
+
+
+def build_parameter_sets(sweep_dict):
+    choices = []
+    for (group, parameter), v in sweep_dict.items():
+        choices.append(
+            [((group, parameter), dict(value=value, pg_p=v['pg_p'])) for value in v['values']]
+        )
+
+    return (dict(p) for p in itertools.product(*choices))
+
+
+def _build_parameter_choices(group, substitutes):
+    choices = []
+    for (group, parameter), choice in build_parameter_group_sweep(group, substitutes).items():
+        choices.append(
+            [(group, parameter, value) for value in choice["values"]]
+        )
+
+    return choices
 
 
 def build_parameters(parameter_groups, substitutes=None):

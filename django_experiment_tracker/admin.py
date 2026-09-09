@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from django_experiment_tracker import models
+from django_experiment_tracker.admin_search import ParameterValueSearchAdminMixin
 
 
 @admin.register(models.GitCommit)

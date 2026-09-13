@@ -47,3 +47,8 @@ class ParameterGroupAdmin(admin.ModelAdmin):
     inlines = [
         ParameterInline,
     ]
+
+
+@admin.register(models.Tag)
+class TagAdmin(admin.ModelAdmin):
+    pass

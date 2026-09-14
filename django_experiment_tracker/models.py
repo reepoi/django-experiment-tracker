@@ -40,7 +40,7 @@ class GitCommit(models.Model):
 
 class Tag(models.Model):
     id = models.AutoField(primary_key=True, db_column='tag_id')
-    tag_value = models.CharField(max_length=100, unique=True)
+    tag_value = models.CharField(max_length=500, unique=True)
 
     def __str__(self):
         return self.tag_value
@@ -59,8 +59,8 @@ class ParameterEnum(models.Model):
     Enum values assignable to a parameter.
     """
     id = models.AutoField(primary_key=True, db_column='parameter_enum_id')
-    parameter_enum_name = models.CharField(max_length=100, unique=True)
-    parameter_enum_description = models.CharField(max_length=100, blank=True)
+    parameter_enum_name = models.CharField(max_length=500, unique=True)
+    parameter_enum_description = models.CharField(max_length=500, blank=True)
     parameter_enum_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType)
 
     def __str__(self):
@@ -76,7 +76,7 @@ class ParameterEnumValue(models.Model):
     """
     id = models.AutoField(primary_key=True, db_column='parameter_enum_value_id')
     parameter_enum = models.ForeignKey(ParameterEnum, on_delete=models.CASCADE)
-    parameter_enum_value = models.CharField(max_length=100)
+    parameter_enum_value = models.CharField(max_length=500)
 
     def __str__(self):
         return self.parameter_enum_value
@@ -104,8 +104,8 @@ class Parameter(models.Model):
     """
     PLACEHOLDER = '???'
     id = models.AutoField(primary_key=True, db_column='parameter_id')
-    parameter_name = models.CharField(max_length=100, unique=True)
-    parameter_description = models.CharField(max_length=100, blank=True)
+    parameter_name = models.CharField(max_length=500, unique=True)
+    parameter_description = models.CharField(max_length=500, blank=True)
     parameter_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType)
 
     def __str__(self):
@@ -173,8 +173,8 @@ class Parameter(models.Model):
 
 class ParameterGroup(models.Model):
     id = models.AutoField(primary_key=True, db_column='parameter_group_id')
-    parameter_group_name = models.CharField(max_length=100, unique=True)
-    parameter_group_description = models.CharField(max_length=100, blank=True)
+    parameter_group_name = models.CharField(max_length=500, unique=True)
+    parameter_group_description = models.CharField(max_length=500, blank=True)
     parameters = models.ManyToManyField(Parameter, through='ParameterGroupParameter', blank=True)
 
     def __str__(self):
@@ -186,7 +186,7 @@ class ParameterGroupParameter(models.Model):
     parameter_group = models.ForeignKey(ParameterGroup, on_delete=models.CASCADE, related_name='parameter_memberships')
     parameter = models.ForeignKey(Parameter, on_delete=models.CASCADE, related_name='parameter_group_memberships')
     parameter_enum = models.ForeignKey(ParameterEnum, blank=True, null=True, on_delete=models.PROTECT)
-    parameter_default_value = models.CharField(max_length=100)
+    parameter_default_value = models.CharField(max_length=500)
 
     class Meta:
         constraints = [
@@ -208,7 +208,7 @@ class ParameterValue(models.Model):
     id = models.AutoField(primary_key=True, db_column='parameter_value_id')
     parameter_group = models.ForeignKey(ParameterGroup, on_delete=models.CASCADE)
     parameter = models.ForeignKey(Parameter, on_delete=models.CASCADE)
-    parameter_value = models.CharField(max_length=100)
+    parameter_value = models.CharField(max_length=500)
 
     class Meta:
         abstract = True
@@ -261,8 +261,8 @@ class SharedFile(models.Model):
     git_commit_created = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_created_related', related_query_name='%(app_label)s_%(class)ss_created')
     git_commit_valid_for = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_valid_for_related', related_query_name='%(app_label)s_%(class)ss_valid_for')
     time_created = models.DateTimeField(blank=True, auto_now_add=True, db_default=models.functions.Now())
-    shared_file_name = models.CharField(max_length=100)
-    shared_file_description = models.CharField(max_length=100, blank=True)
+    shared_file_name = models.CharField(max_length=500)
+    shared_file_description = models.CharField(max_length=500, blank=True)
     tags = models.ManyToManyField(Tag, blank=True)
 
     class Meta:

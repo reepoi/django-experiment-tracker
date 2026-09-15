@@ -10,8 +10,10 @@ from django_experiment_tracker.models import Tag
 from django_experiment_tracker.models import ParameterGroup
 
 
-def build_experiment_df(connection, parameter_group_names, derived_experiment_funcs=()):
+def build_experiment_df(connection, parameter_group_names, derived_enums=None, derived_experiment_funcs=()):
     """Build complete experiment parameter sets from tracker tables with SQL and Polars."""
+    if derived_enums is None:
+        derived_enums = {}
     placeholders = ", ".join(["?"] * len(parameter_group_names))
     base_pgp = connection.execute(
         f"""
@@ -45,6 +47,7 @@ def build_experiment_df(connection, parameter_group_names, derived_experiment_fu
             key=lambda row: (row["parameter_group_name"], row["parameter_name"]),
         )
     }
+    groups.update(derived_enums)
     experiment_parameter_rows = []
     choices = [
         [

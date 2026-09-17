@@ -20,6 +20,13 @@ EXPERIMENT_MODEL_SETTING = "EXPERIMENT_TRACKER_EXPERIMENT_MODEL"
 ENVIRONMENT_VARIABLE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def group_resource_values(values, resources_per_run):
+    return [
+        ",".join(values[index : index + resources_per_run])
+        for index in range(0, len(values), resources_per_run)
+    ]
+
+
 class SchedulerInterrupted(Exception):
     pass
 
@@ -47,6 +54,17 @@ class Command(BaseCommand):
             help="Management command that runs one experiment by alternative ID",
         )
         parser.add_argument(
+            "--runner-argument",
+            action="append",
+            default=[],
+            metavar="ARG",
+            help=(
+                "Argument passed to the runner after its alternative ID; repeat for "
+                "multiple arguments (use --runner-argument=VALUE for values beginning "
+                "with a dash)"
+            ),
+        )
+        parser.add_argument(
             "--resource",
             required=True,
             metavar="NAME=VALUE[,VALUE...]",
@@ -57,13 +75,22 @@ class Command(BaseCommand):
             type=int,
             default=1,
             metavar="N",
-            help="Maximum simultaneous experiments per resource value (default: 1)",
+            help="Maximum simultaneous experiments per resource group (default: 1)",
+        )
+        parser.add_argument(
+            "--resources-per-run",
+            type=int,
+            default=1,
+            metavar="N",
+            help="Number of resource values assigned to each experiment (default: 1)",
         )
 
     def handle(self, *args, **options):
         alt_ids = options["alt_ids"]
         runner = options["runner"]
+        runner_arguments = options["runner_argument"]
         slots_per_resource = options["slots_per_resource"]
+        resources_per_run = options["resources_per_run"]
 
         experiment_model = self._get_experiment_model()
         self._validate_alt_ids(experiment_model, alt_ids)
@@ -71,10 +98,20 @@ class Command(BaseCommand):
         resource_name, resource_values = self._parse_resource(options["resource"])
         if slots_per_resource < 1:
             raise CommandError("--slots-per-resource must be at least 1")
+        if resources_per_run < 1:
+            raise CommandError("--resources-per-run must be at least 1")
+        if len(resource_values) % resources_per_run:
+            raise CommandError(
+                "The number of resource values must be divisible by "
+                "--resources-per-run"
+            )
 
         slots = deque(
-            resource
-            for resource in resource_values
+            resource_group
+            for resource_group in group_resource_values(
+                resource_values,
+                resources_per_run,
+            )
             for _ in range(slots_per_resource)
         )
         pending = deque(alt_ids)
@@ -89,7 +126,13 @@ class Command(BaseCommand):
                     alt_id = pending.popleft()
                     resource = slots.popleft()
                     running.append(
-                        self._launch(runner, alt_id, resource_name, resource)
+                        self._launch(
+                            runner,
+                            runner_arguments,
+                            alt_id,
+                            resource_name,
+                            resource,
+                        )
                     )
 
                 completed = [item for item in running if item.process.poll() is not None]
@@ -184,8 +227,15 @@ class Command(BaseCommand):
             raise CommandError("Managed resource values must not contain duplicates")
         return name, values
 
-    def _launch(self, runner, alt_id, resource_name, resource):
-        command = [sys.executable, "-m", "django", runner, alt_id]
+    def _launch(self, runner, runner_arguments, alt_id, resource_name, resource):
+        command = [
+            sys.executable,
+            "-m",
+            "django",
+            runner,
+            alt_id,
+            *runner_arguments,
+        ]
         environment = os.environ.copy()
         environment[resource_name] = resource
         connections.close_all()

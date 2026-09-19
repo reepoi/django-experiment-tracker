@@ -36,7 +36,17 @@ Installation
 
    .. code:: bash
 
-      python manage.py migrate
+       python manage.py migrate
+
+Configuration
+-------------
+Set ``DJANGO_EXPERIMENT_TRACKER_CHARFIELD_MAX_LENGTH`` to change the
+default maximum length for tracker names, descriptions, paths, and parameter
+values. It defaults to ``500``.
+
+.. code:: python
+
+   DJANGO_EXPERIMENT_TRACKER_CHARFIELD_MAX_LENGTH = 1000
 
 Core model contract
 -------------------
@@ -47,13 +57,12 @@ Core model contract
 * an ``ExperimentParameter`` model with:
 
   * FK to the concrete ``Experiment``
-  * FK to tracker ``ParameterGroup``
-  * FK to tracker ``Parameter``
-  * ``parameter_value`` field
+  * FK to tracker ``ParameterGroupParameter`` as ``definition``
+  * ``value`` field
 
 For deterministic deduplication behavior with the generation helpers, enforce:
 
-* unique constraint on ``(experiment, parameter, parameter_group)``
+* unique constraint on ``(experiment, definition)``
 
 ``Experiment.alt_id`` notes
 ---------------------------
@@ -77,7 +86,7 @@ Use ``create_experiments_from_parameters`` to create experiments and associated 
    )
 Expected ``experiment_parameters`` shape per experiment:
 
-* iterable of ``((parameter_group, parameter), parameter_value)``
+* iterable of ``(definition, value)``
 
 Git commit recording command
 ----------------------------
@@ -98,6 +107,31 @@ Read rewrite map from stdin (for git ``post-rewrite`` hooks):
 .. code:: bash
 
    python manage.py record_git_commit --stdin-rewrite-map
+
+Local experiment scheduling
+---------------------------
+``run_experiments`` runs a consumer-provided management command once per experiment
+and limits concurrency using values assigned through an environment variable::
+
+   python manage.py run_experiments exp_a exp_b \
+       --runner run_workflow \
+       --runner-argument=--workflow=train \
+       --resource CUDA_VISIBLE_DEVICES=0,1
+
+Runner arguments are placed after the experiment alternative ID. Repeat
+``--runner-argument`` when the runner needs multiple arguments.
+
+Use ``--resources-per-run`` to assign contiguous groups of values to each run. For
+example, the following creates the groups ``0,1`` and ``2,3``::
+
+   python manage.py run_experiments exp_a exp_b \
+       --runner run_workflow \
+       --runner-argument=--workflow=train \
+       --resource CUDA_VISIBLE_DEVICES=0,1,2,3 \
+       --resources-per-run 2
+
+The number of resource values must be divisible by ``--resources-per-run``.
+``--slots-per-resource`` controls how many runs may share each complete group.
 
 Testing
 -------

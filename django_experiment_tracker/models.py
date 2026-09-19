@@ -2,8 +2,12 @@ import random
 import string
 
 from django.core.exceptions import ValidationError
+from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+
+
+CHARFIELD_MAX_LENGTH = getattr(settings, 'DJANGO_EXPERIMENT_TRACKER_CHARFIELD_MAX_LENGTH', 500)
 
 
 def generate_random_string(k=8, chars=string.ascii_lowercase+string.digits):
@@ -40,7 +44,7 @@ class GitCommit(models.Model):
 
 class Tag(models.Model):
     id = models.AutoField(primary_key=True, db_column='tag_id')
-    value = models.CharField(max_length=500, unique=True, db_column='tag_value')
+    value = models.CharField(max_length=CHARFIELD_MAX_LENGTH, unique=True, db_column='tag_value')
 
     def __str__(self):
         return self.value
@@ -59,8 +63,8 @@ class ParameterEnum(models.Model):
     Enum values assignable to a parameter.
     """
     id = models.AutoField(primary_key=True, db_column='parameter_enum_id')
-    name = models.CharField(max_length=500, unique=True, db_column='parameter_enum_name')
-    description = models.CharField(max_length=500, blank=True, db_column='parameter_enum_description')
+    name = models.CharField(max_length=CHARFIELD_MAX_LENGTH, unique=True, db_column='parameter_enum_name')
+    description = models.CharField(max_length=CHARFIELD_MAX_LENGTH, blank=True, db_column='parameter_enum_description')
     data_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType, db_column='parameter_enum_data_type')
 
     def __str__(self):
@@ -76,7 +80,7 @@ class ParameterEnumValue(models.Model):
     """
     id = models.AutoField(primary_key=True, db_column='parameter_enum_value_id')
     enum = models.ForeignKey(ParameterEnum, on_delete=models.CASCADE, db_column=ParameterEnum._meta.pk.column)
-    value = models.CharField(max_length=500, db_column='parameter_enum_value')
+    value = models.CharField(max_length=CHARFIELD_MAX_LENGTH, db_column='parameter_enum_value')
 
     def __str__(self):
         return self.value
@@ -104,8 +108,8 @@ class Parameter(models.Model):
     """
     PLACEHOLDER = '???'
     id = models.AutoField(primary_key=True, db_column='parameter_id')
-    name = models.CharField(max_length=500, unique=True, db_column='parameter_name')
-    description = models.CharField(max_length=500, blank=True, db_column='parameter_description')
+    name = models.CharField(max_length=CHARFIELD_MAX_LENGTH, unique=True, db_column='parameter_name')
+    description = models.CharField(max_length=CHARFIELD_MAX_LENGTH, blank=True, db_column='parameter_description')
     data_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType, db_column='parameter_data_type')
 
     def __str__(self):
@@ -173,8 +177,8 @@ class Parameter(models.Model):
 
 class ParameterGroup(models.Model):
     id = models.AutoField(primary_key=True, db_column='parameter_group_id')
-    name = models.CharField(max_length=500, unique=True, db_column='parameter_group_name')
-    description = models.CharField(max_length=500, blank=True, db_column='parameter_group_description')
+    name = models.CharField(max_length=CHARFIELD_MAX_LENGTH, unique=True, db_column='parameter_group_name')
+    description = models.CharField(max_length=CHARFIELD_MAX_LENGTH, blank=True, db_column='parameter_group_description')
     parameters = models.ManyToManyField(Parameter, through='ParameterGroupParameter', blank=True)
 
     def __str__(self):
@@ -186,7 +190,7 @@ class ParameterGroupParameter(models.Model):
     parameter_group = models.ForeignKey(ParameterGroup, on_delete=models.CASCADE, related_name='parameter_memberships', db_column=ParameterGroup._meta.pk.column)
     parameter = models.ForeignKey(Parameter, on_delete=models.CASCADE, related_name='parameter_group_memberships', db_column=Parameter._meta.pk.column)
     parameter_enum = models.ForeignKey(ParameterEnum, blank=True, null=True, on_delete=models.PROTECT, db_column=ParameterEnum._meta.pk.column)
-    parameter_default_value = models.CharField(max_length=500)
+    parameter_default_value = models.CharField(max_length=CHARFIELD_MAX_LENGTH)
 
     class Meta:
         constraints = [
@@ -207,7 +211,7 @@ class ParameterGroupParameter(models.Model):
 class ParameterValue(models.Model):
     id = models.AutoField(primary_key=True, db_column='parameter_value_id')
     definition = models.ForeignKey(ParameterGroupParameter, on_delete=models.CASCADE, db_column=ParameterGroupParameter._meta.pk.column)
-    value = models.CharField(max_length=500, db_column='parameter_value')
+    value = models.CharField(max_length=CHARFIELD_MAX_LENGTH, db_column='parameter_value')
 
     class Meta:
         abstract = True
@@ -260,9 +264,9 @@ class SharedFile(models.Model):
     git_commit_created = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_created_related', related_query_name='%(app_label)s_%(class)ss_created')
     git_commit_valid_for = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_valid_for_related', related_query_name='%(app_label)s_%(class)ss_valid_for')
     time_created = models.DateTimeField(blank=True, auto_now_add=True, db_default=models.functions.Now())
-    name = models.CharField(max_length=500, db_column='shared_file_name')
-    path = models.CharField(max_length=500, db_column='shared_file_path')
-    description = models.CharField(max_length=500, blank=True, db_column='shared_file_description')
+    name = models.CharField(max_length=CHARFIELD_MAX_LENGTH, db_column='shared_file_name')
+    path = models.CharField(max_length=CHARFIELD_MAX_LENGTH, db_column='shared_file_path')
+    description = models.CharField(max_length=CHARFIELD_MAX_LENGTH, blank=True, db_column='shared_file_description')
     tags = models.ManyToManyField(Tag, blank=True)
 
     class Meta:

@@ -50,7 +50,7 @@ class ParameterValueSearchAdminMixin:
                     parameter_value_relation or self.get_parameter_value_relation()
                 )
                 queryset = queryset.filter(**{
-                    f'{parameter_value_relation}__parameter_group__parameter_group_name__iexact': (
+                    f'{parameter_value_relation}__parameter_group_parameter__parameter_group__parameter_group_name__iexact': (
                         term.removeprefix('g:')
                     ),
                 })
@@ -75,7 +75,7 @@ class ParameterValueSearchAdminMixin:
                     parameter_value_relation or self.get_parameter_value_relation()
                 )
                 queryset = queryset.filter(**{
-                    f'{parameter_value_relation}__parameter': parameter,
+                    f'{parameter_value_relation}__parameter_group_parameter__parameter': parameter,
                     f'{parameter_value_relation}__parameter_value': value,
                 })
             else:

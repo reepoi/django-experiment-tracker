@@ -7,6 +7,7 @@ from django_experiment_tracker.admin_search import ParameterValueSearchAdminMixi
 from django_experiment_tracker.models import (
     Parameter,
     ParameterGroup,
+    ParameterGroupParameter,
     ParameterType,
     ParameterValue,
     Tag,
@@ -68,6 +69,16 @@ def searchable_records(db, searchable_record_models):
     other_group.tags.add(baseline)
     other_value.tags.add(baseline)
     other_tag.tags.add(candidate)
+    optimizer_learning_rate = ParameterGroupParameter.objects.create(
+        parameter_group=optimizer,
+        parameter=learning_rate,
+        parameter_default_value='0.001',
+    )
+    scheduler_learning_rate = ParameterGroupParameter.objects.create(
+        parameter_group=scheduler,
+        parameter=learning_rate,
+        parameter_default_value='0.001',
+    )
     for record, group, value in (
         (matching, optimizer, '0.001'),
         (other_tag, optimizer, '0.001'),
@@ -76,8 +87,9 @@ def searchable_records(db, searchable_record_models):
     ):
         RecordConfiguration.objects.create(
             record=record,
-            parameter_group=group,
-            parameter=learning_rate,
+            parameter_group_parameter=(
+                optimizer_learning_rate if group == optimizer else scheduler_learning_rate
+            ),
             parameter_value=value,
         )
     return {

@@ -35,8 +35,8 @@ class DemoExperimentParameter(ParameterValue):
         app_label = "django_experiment_tracker"
         constraints = [
             models.UniqueConstraint(
-                fields=["experiment", "parameter", "parameter_group"],
-                name="test_experiment_parameter_and_group_alt_key",
+                fields=["experiment", "parameter_group_parameter"],
+                name="test_experiment_parameter_group_parameter_alt_key",
             ),
         ]
 
@@ -81,12 +81,12 @@ def parameter_setup(db):
         parameter_name="y",
         parameter_type=ParameterType.INT,
     )
-    ParameterGroupParameter.objects.create(
+    group_a_param_x = ParameterGroupParameter.objects.create(
         parameter_group=group_a,
         parameter=param_x,
         parameter_default_value="1",
     )
-    ParameterGroupParameter.objects.create(
+    group_b_param_y = ParameterGroupParameter.objects.create(
         parameter_group=group_b,
         parameter=param_y,
         parameter_default_value="2",
@@ -96,13 +96,15 @@ def parameter_setup(db):
         "group_b": group_b,
         "param_x": param_x,
         "param_y": param_y,
+        "group_a_param_x": group_a_param_x,
+        "group_b_param_y": group_b_param_y,
     }
 
 
 def _params_case(parameter_setup, x_val="1", y_val="2"):
     return [
-        (parameter_setup["group_a"], parameter_setup["param_x"], x_val),
-        (parameter_setup["group_b"], parameter_setup["param_y"], y_val),
+        (parameter_setup["group_a_param_x"], x_val),
+        (parameter_setup["group_b_param_y"], y_val),
     ]
 
 
@@ -219,7 +221,7 @@ def test_parameter_configuration_is_specific_to_group():
 
     cases = list(build_parameters_by_group(ParameterGroup.objects.order_by("id")))
 
-    assert [case[0][2] for case in cases] == ["1", "2", "3"]
+    assert [case[0][1] for case in cases] == ["1", "2", "3"]
 
 
 @pytest.mark.django_db
@@ -261,8 +263,7 @@ def test_parameter_values_are_normalized_before_saving(
     )
     parameter_value = experiment_parameter_model.objects.create(
         experiment=experiment,
-        parameter_group=group,
-        parameter=parameter,
+        parameter_group_parameter=group_parameter,
         parameter_value=value,
     )
 
@@ -327,6 +328,7 @@ def duckdb_connection():
             parameter_name varchar
         );
         create table django_experiment_tracker_parametergroupparameter (
+            parameter_group_parameter_id bigint,
             parameter_group_id bigint,
             parameter_id bigint,
             parameter_enum_id bigint,
@@ -376,6 +378,7 @@ def _sync_tracker_tables(duckdb_connection):
         duckdb_connection,
         "django_experiment_tracker_parametergroupparameter",
         [
+            "parameter_group_parameter_id",
             "parameter_group_id",
             "parameter_id",
             "parameter_enum_id",
@@ -445,7 +448,7 @@ def test_build_experiment_df_uses_polars_for_enum_and_default_joins(
     experiment_df = build_experiment_df(
         duckdb_connection,
         ["dataset_window", "rolling_diffusion_frames"],
-        [_clean_frame_parameter_sets],
+        derived_experiment_funcs=[_clean_frame_parameter_sets],
     )
 
     assert experiment_df.height == 8
@@ -473,8 +476,7 @@ def test_get_or_create_experiments_uses_exact_polars_matches(
         f"""
         create table {experiment_parameter_model._meta.db_table} (
             experiment_id bigint,
-            parameter_group_id bigint,
-            parameter_id bigint,
+            parameter_group_parameter_id bigint,
             parameter_value varchar
         )
         """
@@ -482,7 +484,7 @@ def test_get_or_create_experiments_uses_exact_polars_matches(
     experiment_df = build_experiment_df(
         duckdb_connection,
         ["dataset_window", "rolling_diffusion_frames"],
-        [_clean_frame_parameter_sets],
+        derived_experiment_funcs=[_clean_frame_parameter_sets],
     )
     kwargs = {
         "git_commit_created": git_commit,
@@ -511,21 +513,20 @@ def test_get_or_create_experiments_uses_exact_polars_matches(
         parameter_name="extra_parameter",
         parameter_type=ParameterType.INT,
     )
-    ParameterGroupParameter.objects.create(
+    extra_group_parameter = ParameterGroupParameter.objects.create(
         parameter_group=extra_group,
         parameter=extra_parameter,
         parameter_default_value="1",
     )
     experiment_parameter_model.objects.create(
         experiment=experiment_with_extra_parameter,
-        parameter_group=extra_group,
-        parameter=extra_parameter,
+        parameter_group_parameter=extra_group_parameter,
         parameter_value="1",
     )
     _sync_duckdb_table(
         duckdb_connection,
         experiment_parameter_model._meta.db_table,
-        ["experiment_id", "parameter_group_id", "parameter_id", "parameter_value"],
+        ["experiment_id", "parameter_group_parameter_id", "parameter_value"],
     )
 
     fetched_or_created = get_or_create_experiments(

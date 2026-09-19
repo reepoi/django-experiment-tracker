@@ -21,8 +21,7 @@ def build_experiment_df(connection, parameter_group_names, derived_enums=None, d
             parameter_group_name,
             parameter_name,
             parameter_default_value,
-            parameter_group_id,
-            parameter_id,
+            parameter_group_parameter_id,
             parameter_enum_id
         from django_experiment_tracker_parametergroup
         join django_experiment_tracker_parametergroupparameter using (parameter_group_id)
@@ -142,6 +141,7 @@ def get_or_create_experiments(
                 {experiment_parameter_table}.experiment_id as existing_experiment_id,
                 count(*) as matched_count
             from {experiment_parameter_table}
+            join django_experiment_tracker_parametergroupparameter using (parameter_group_parameter_id)
             join django_experiment_tracker_parameter using (parameter_id)
             join django_experiment_tracker_parametergroup using (parameter_group_id)
             join experiment_df using (parameter_group_name, parameter_name, parameter_value)
@@ -164,13 +164,12 @@ def get_or_create_experiments(
     experiment_manager = experiment_model.objects.using(database_alias)
     parameter_manager = parameter_model.objects.using(database_alias)
     existing_experiments = experiment_manager.in_bulk(experiment_ids_by_id.values())
-    parameter_ids_relation = connection.sql(
+    parameter_group_parameter_ids_relation = connection.sql(
         """
         select
             parameter_group_name,
             parameter_name,
-            parameter_group_id,
-            parameter_id
+            parameter_group_parameter_id
         from django_experiment_tracker_parametergroup
         join django_experiment_tracker_parametergroupparameter using (parameter_group_id)
         join django_experiment_tracker_parameter using (parameter_id)
@@ -178,10 +177,10 @@ def get_or_create_experiments(
         group by all
         """
     )
-    parameter_ids = {
-        (parameter_group_name, parameter_name): (parameter_group_id, parameter_id)
-        for parameter_group_name, parameter_name, parameter_group_id, parameter_id
-        in parameter_ids_relation.fetchall()
+    parameter_group_parameter_ids = {
+        (parameter_group_name, parameter_name): parameter_group_parameter_id
+        for parameter_group_name, parameter_name, parameter_group_parameter_id
+        in parameter_group_parameter_ids_relation.fetchall()
     }
     tags = list(tags)
     fk_name = _fk_field_name(parameter_model, experiment_model)
@@ -202,12 +201,9 @@ def get_or_create_experiments(
                         parameter_model(
                             **{
                                 f"{fk_name}_id": experiment.id,
-                                "parameter_group_id": parameter_ids[
+                                "parameter_group_parameter_id": parameter_group_parameter_ids[
                                     (row["parameter_group_name"], row["parameter_name"])
-                                ][0],
-                                "parameter_id": parameter_ids[
-                                    (row["parameter_group_name"], row["parameter_name"])
-                                ][1],
+                                ],
                                 "parameter_value": row["parameter_value"],
                             }
                         )
@@ -250,7 +246,7 @@ def build_parameter_group_sweep(group, substitutes=None):
                 f"{group.parameter_group_name}->{parameter.parameter_name}: "
                 "Missing value."
             )
-        choices[key] = dict(values=values, pg_p=(group, parameter))
+        choices[key] = dict(values=values, parameter_group_parameter=membership)
 
     return choices
 
@@ -276,7 +272,13 @@ def build_parameter_sets(sweep_dict):
     choices = []
     for (group, parameter), v in sweep_dict.items():
         choices.append(
-            [((group, parameter), dict(value=value, pg_p=v['pg_p'])) for value in v['values']]
+            [
+                ((group, parameter), dict(
+                    value=value,
+                    parameter_group_parameter=v['parameter_group_parameter'],
+                ))
+                for value in v['values']
+            ]
         )
 
     return (dict(p) for p in itertools.product(*choices))
@@ -284,9 +286,12 @@ def build_parameter_sets(sweep_dict):
 
 def _build_parameter_choices(group, substitutes):
     choices = []
-    for (group, parameter), choice in build_parameter_group_sweep(group, substitutes).items():
+    for choice in build_parameter_group_sweep(group, substitutes).values():
         choices.append(
-            [(group, parameter, value) for value in choice["values"]]
+            [
+                (choice["parameter_group_parameter"], value)
+                for value in choice["values"]
+            ]
         )
 
     return choices
@@ -344,11 +349,10 @@ def get_or_create_parameterized_model(
     relation_query_name = _param_query_name(parameter_model, model)
 
     q = Q()
-    for parameter_group, parameter, parameter_value in parameters:
+    for parameter_group_parameter, parameter_value in parameters:
         q |= Q(
             **{
-                f"{relation_query_name}__parameter_group": parameter_group,
-                f"{relation_query_name}__parameter": parameter,
+                f"{relation_query_name}__parameter_group_parameter": parameter_group_parameter,
                 f"{relation_query_name}__parameter_value": parameter_value,
             }
         )
@@ -369,13 +373,12 @@ def get_or_create_parameterized_model(
         row = model(**model_kwargs)
         parameter_rows = []
         fk_name = _fk_field_name(parameter_model, model)
-        for parameter_group, parameter, parameter_value in parameters:
+        for parameter_group_parameter, parameter_value in parameters:
             parameter_rows.append(
                 parameter_model(
                     **{
                         fk_name: row,
-                        "parameter_group": parameter_group,
-                        "parameter": parameter,
+                        "parameter_group_parameter": parameter_group_parameter,
                         "parameter_value": parameter_value,
                     }
                 )

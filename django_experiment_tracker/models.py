@@ -206,8 +206,7 @@ class ParameterGroupParameter(models.Model):
 
 class ParameterValue(models.Model):
     id = models.AutoField(primary_key=True, db_column='parameter_value_id')
-    parameter_group = models.ForeignKey(ParameterGroup, on_delete=models.CASCADE)
-    parameter = models.ForeignKey(Parameter, on_delete=models.CASCADE)
+    parameter_group_parameter = models.ForeignKey(ParameterGroupParameter, on_delete=models.CASCADE)
     parameter_value = models.CharField(max_length=500)
 
     class Meta:
@@ -217,23 +216,26 @@ class ParameterValue(models.Model):
     def parameter_value_constraints(cls, parameterized_model_field_name):
         return [
             models.UniqueConstraint(
-                fields=[parameterized_model_field_name, 'parameter_group', 'parameter'],
-                name=f'{parameterized_model_field_name}_group_and_parameter_alt_key',
+                fields=[parameterized_model_field_name, 'parameter_group_parameter'],
+                name=f'{parameterized_model_field_name}_parameter_group_parameter_alt_key',
             ),
         ]
 
     def __str__(self):
-        return f'{self.parameter_group}, {self.parameter}, {self.parameter_value}'
+        return f'{self.parameter_group_parameter}, {self.parameter_value}'
 
     def save(self, *args, **kwargs):
         self.parameter_value = Parameter.format_value(
-            self.parameter.parameter_type,
-            Parameter.parse_value(self.parameter.parameter_type, self.parameter_value),
+            self.parameter_group_parameter.parameter.parameter_type,
+            Parameter.parse_value(self.parameter_group_parameter.parameter.parameter_type, self.parameter_value),
         )
         return super().save(*args, **kwargs)
 
     def parse(self):
-        return Parameter.parse_value(self.parameter.parameter_type, self.parameter_value)
+        return Parameter.parse_value(
+            self.parameter_group_parameter.parameter.parameter_type,
+            self.parameter_value,
+        )
 
 
 class Experiment(models.Model):

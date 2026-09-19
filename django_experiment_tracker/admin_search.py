@@ -43,14 +43,14 @@ class ParameterValueSearchAdminMixin:
                 except FieldDoesNotExist:
                     return queryset.none(), False
                 queryset = queryset.filter(
-                    tags__tag_value__iexact=term.removeprefix('t:'),
+                    tags__value__iexact=term.removeprefix('t:'),
                 )
             elif term.startswith('g:') and len(term) > len('g:'):
                 parameter_value_relation = (
                     parameter_value_relation or self.get_parameter_value_relation()
                 )
                 queryset = queryset.filter(**{
-                    f'{parameter_value_relation}__parameter_group_parameter__parameter_group__parameter_group_name__iexact': (
+                    f'{parameter_value_relation}__definition__parameter_group__name__iexact': (
                         term.removeprefix('g:')
                     ),
                 })
@@ -63,11 +63,11 @@ class ParameterValueSearchAdminMixin:
                     return queryset.none(), False
                 try:
                     parameter = models.Parameter.objects.get(
-                        parameter_name__iexact=name,
+                        name__iexact=name,
                     )
                     value = models.Parameter.format_value(
-                        parameter.parameter_type,
-                        models.Parameter.parse_value(parameter.parameter_type, value),
+                        parameter.data_type,
+                        models.Parameter.parse_value(parameter.data_type, value),
                     )
                 except (models.Parameter.DoesNotExist, ValueError):
                     return queryset.none(), False
@@ -75,8 +75,8 @@ class ParameterValueSearchAdminMixin:
                     parameter_value_relation or self.get_parameter_value_relation()
                 )
                 queryset = queryset.filter(**{
-                    f'{parameter_value_relation}__parameter_group_parameter__parameter': parameter,
-                    f'{parameter_value_relation}__parameter_value': value,
+                    f'{parameter_value_relation}__definition__parameter': parameter,
+                    f'{parameter_value_relation}__value': value,
                 })
             else:
                 return queryset.none(), False

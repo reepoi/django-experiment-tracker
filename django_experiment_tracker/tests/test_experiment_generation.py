@@ -35,8 +35,8 @@ class DemoExperimentParameter(ParameterValue):
         app_label = "django_experiment_tracker"
         constraints = [
             models.UniqueConstraint(
-                fields=["experiment", "parameter_group_parameter"],
-                name="test_experiment_parameter_group_parameter_alt_key",
+                fields=["experiment", "definition"],
+                name="test_experiment_parameter_definition_alt_key",
             ),
         ]
 
@@ -66,20 +66,20 @@ def git_commit(db):
 
 @pytest.fixture
 def tags(db):
-    return [Tag.objects.create(tag_value="Generalization")]
+    return [Tag.objects.create(value="Generalization")]
 
 
 @pytest.fixture
 def parameter_setup(db):
-    group_a = ParameterGroup.objects.create(parameter_group_name="group_a")
-    group_b = ParameterGroup.objects.create(parameter_group_name="group_b")
+    group_a = ParameterGroup.objects.create(name="group_a")
+    group_b = ParameterGroup.objects.create(name="group_b")
     param_x = Parameter.objects.create(
-        parameter_name="x",
-        parameter_type=ParameterType.INT,
+        name="x",
+        data_type=ParameterType.INT,
     )
     param_y = Parameter.objects.create(
-        parameter_name="y",
-        parameter_type=ParameterType.INT,
+        name="y",
+        data_type=ParameterType.INT,
     )
     group_a_param_x = ParameterGroupParameter.objects.create(
         parameter_group=group_a,
@@ -127,7 +127,7 @@ def test_creates_new_experiment_when_no_match(git_commit, tags, parameter_setup,
     assert experiment_model.objects.count() == 1
     assert experiment_parameter_model.objects.count() == 2
     experiment = experiment_model.objects.get()
-    assert experiment.tags.filter(tag_value="Generalization").exists()
+    assert experiment.tags.filter(value="Generalization").exists()
 
 
 @pytest.mark.django_db
@@ -189,23 +189,23 @@ def test_batch_insert_creates_multiple_experiments(git_commit, tags, parameter_s
 
 @pytest.mark.django_db
 def test_parameter_configuration_is_specific_to_group():
-    group_a = ParameterGroup.objects.create(parameter_group_name="group_a")
-    group_b = ParameterGroup.objects.create(parameter_group_name="group_b")
+    group_a = ParameterGroup.objects.create(name="group_a")
+    group_b = ParameterGroup.objects.create(name="group_b")
     parameter = Parameter.objects.create(
-        parameter_name="shared",
-        parameter_type=ParameterType.INT,
+        name="shared",
+        data_type=ParameterType.INT,
     )
     parameter_enum = ParameterEnum.objects.create(
-        parameter_enum_name="choices",
-        parameter_enum_type=ParameterType.INT,
+        name="choices",
+        data_type=ParameterType.INT,
     )
     ParameterEnumValue.objects.create(
-        parameter_enum=parameter_enum,
-        parameter_enum_value="2",
+        enum=parameter_enum,
+        value="2",
     )
     ParameterEnumValue.objects.create(
-        parameter_enum=parameter_enum,
-        parameter_enum_value="3",
+        enum=parameter_enum,
+        value="3",
     )
     ParameterGroupParameter.objects.create(
         parameter_group=group_a,
@@ -238,19 +238,19 @@ def test_parameter_values_are_normalized_before_saving(
     parameter_type, value, expected, git_commit, experiment_models
 ):
     experiment_model, experiment_parameter_model = experiment_models
-    group = ParameterGroup.objects.create(parameter_group_name=f"group_{parameter_type}")
+    group = ParameterGroup.objects.create(name=f"group_{parameter_type}")
     parameter = Parameter.objects.create(
-        parameter_name=f"parameter_{parameter_type}",
-        parameter_type=parameter_type,
+        name=f"parameter_{parameter_type}",
+        data_type=parameter_type,
     )
     parameter_enum = ParameterEnum.objects.create(
-        parameter_enum_name=f"enum_{parameter_type}",
-        parameter_enum_type=parameter_type,
+        name=f"enum_{parameter_type}",
+        data_type=parameter_type,
     )
 
     enum_value = ParameterEnumValue.objects.create(
-        parameter_enum=parameter_enum,
-        parameter_enum_value=value,
+        enum=parameter_enum,
+        value=value,
     )
     group_parameter = ParameterGroupParameter.objects.create(
         parameter_group=group,
@@ -263,17 +263,17 @@ def test_parameter_values_are_normalized_before_saving(
     )
     parameter_value = experiment_parameter_model.objects.create(
         experiment=experiment,
-        parameter_group_parameter=group_parameter,
-        parameter_value=value,
+        definition=group_parameter,
+        value=value,
     )
 
     enum_value.refresh_from_db()
     group_parameter.refresh_from_db()
     parameter_value.refresh_from_db()
 
-    assert enum_value.parameter_enum_value == expected
+    assert enum_value.value == expected
     assert group_parameter.parameter_default_value == expected
-    assert parameter_value.parameter_value == expected
+    assert parameter_value.value == expected
 
 
 def test_parameter_formats_parsed_hex_values():
@@ -399,29 +399,25 @@ def _sync_tracker_tables(duckdb_connection):
 
 @pytest.fixture
 def sweep_parameter_setup(db):
-    dataset_window = ParameterGroup.objects.create(
-        parameter_group_name="dataset_window"
-    )
-    rolling_diffusion_frames = ParameterGroup.objects.create(
-        parameter_group_name="rolling_diffusion_frames"
-    )
+    dataset_window = ParameterGroup.objects.create(name="dataset_window")
+    rolling_diffusion_frames = ParameterGroup.objects.create(name="rolling_diffusion_frames")
     frame_count = Parameter.objects.create(
-        parameter_name="frame_count",
-        parameter_type=ParameterType.INT,
+        name="frame_count",
+        data_type=ParameterType.INT,
     )
     clean_frame_count = Parameter.objects.create(
-        parameter_name="clean_frame_count",
-        parameter_type=ParameterType.INT,
+        name="clean_frame_count",
+        data_type=ParameterType.INT,
     )
     frame_count_enum = ParameterEnum.objects.create(
-        parameter_enum_name="frame_count_choices",
-        parameter_enum_type=ParameterType.INT,
+        name="frame_count_choices",
+        data_type=ParameterType.INT,
     )
     ParameterEnumValue.objects.bulk_create(
         [
             ParameterEnumValue(
-                parameter_enum=frame_count_enum,
-                parameter_enum_value=value,
+                enum=frame_count_enum,
+                value=value,
             )
             for value in ("5", "9")
         ]
@@ -508,10 +504,10 @@ def test_get_or_create_experiments_uses_exact_polars_matches(
     created_ids = set(created.values_list("pk", flat=True))
     experiment_with_extra_parameter = created.first()
 
-    extra_group = ParameterGroup.objects.create(parameter_group_name="extra")
+    extra_group = ParameterGroup.objects.create(name="extra")
     extra_parameter = Parameter.objects.create(
-        parameter_name="extra_parameter",
-        parameter_type=ParameterType.INT,
+        name="extra_parameter",
+        data_type=ParameterType.INT,
     )
     extra_group_parameter = ParameterGroupParameter.objects.create(
         parameter_group=extra_group,
@@ -520,8 +516,8 @@ def test_get_or_create_experiments_uses_exact_polars_matches(
     )
     experiment_parameter_model.objects.create(
         experiment=experiment_with_extra_parameter,
-        parameter_group_parameter=extra_group_parameter,
-        parameter_value="1",
+        definition=extra_group_parameter,
+        value="1",
     )
     _sync_duckdb_table(
         duckdb_connection,
@@ -545,4 +541,4 @@ def test_get_or_create_experiments_uses_exact_polars_matches(
     fetched_or_created_ids = set(fetched_or_created.values_list("pk", flat=True))
     assert created_ids - {experiment_with_extra_parameter.pk} <= fetched_or_created_ids
     assert experiment_with_extra_parameter.pk not in fetched_or_created_ids
-    assert all(experiment.tags.filter(tag_value="Generalization").exists() for experiment in fetched_or_created)
+    assert all(experiment.tags.filter(value="Generalization").exists() for experiment in fetched_or_created)

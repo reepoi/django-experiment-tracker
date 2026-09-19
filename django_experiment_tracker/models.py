@@ -40,10 +40,10 @@ class GitCommit(models.Model):
 
 class Tag(models.Model):
     id = models.AutoField(primary_key=True, db_column='tag_id')
-    tag_value = models.CharField(max_length=500, unique=True)
+    value = models.CharField(max_length=500, unique=True, db_column='tag_value')
 
     def __str__(self):
-        return self.tag_value
+        return self.value
 
 
 class ParameterType(models.TextChoices):
@@ -59,15 +59,15 @@ class ParameterEnum(models.Model):
     Enum values assignable to a parameter.
     """
     id = models.AutoField(primary_key=True, db_column='parameter_enum_id')
-    parameter_enum_name = models.CharField(max_length=500, unique=True)
-    parameter_enum_description = models.CharField(max_length=500, blank=True)
-    parameter_enum_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType)
+    name = models.CharField(max_length=500, unique=True, db_column='parameter_enum_name')
+    description = models.CharField(max_length=500, blank=True, db_column='parameter_enum_description')
+    data_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType, db_column='parameter_enum_data_type')
 
     def __str__(self):
-        return f'{self.parameter_enum_name} ({ParameterType(self.parameter_enum_type).label})'
+        return f'{self.name} ({ParameterType(self.data_type).label})'
 
     def parse_value(self, value):
-        return Parameter.parse_value(self.parameter_enum_type, value)
+        return Parameter.parse_value(self.data_type, value)
 
 
 class ParameterEnumValue(models.Model):
@@ -75,27 +75,27 @@ class ParameterEnumValue(models.Model):
     One value in the enumeration of a parameter enum.
     """
     id = models.AutoField(primary_key=True, db_column='parameter_enum_value_id')
-    parameter_enum = models.ForeignKey(ParameterEnum, on_delete=models.CASCADE)
-    parameter_enum_value = models.CharField(max_length=500)
+    enum = models.ForeignKey(ParameterEnum, on_delete=models.CASCADE, db_column=ParameterEnum._meta.pk.column)
+    value = models.CharField(max_length=500, db_column='parameter_enum_value')
 
     def __str__(self):
-        return self.parameter_enum_value
+        return self.value
 
     def save(self, *args, **kwargs):
-        self.parameter_enum_value = Parameter.format_value(
-            self.parameter_enum.parameter_enum_type,
-            Parameter.parse_value(self.parameter_enum.parameter_enum_type, self.parameter_enum_value),
+        self.value = Parameter.format_value(
+            self.enum.data_type,
+            Parameter.parse_value(self.enum.data_type, self.value),
         )
         return super().save(*args, **kwargs)
 
     def clean(self):
         try:
-            self.parameter_enum_value = Parameter.format_value(self.parameter_enum.parameter_enum_type, self.parse())
+            self.value = Parameter.format_value(self.enum.data_type, self.parse())
         except ValueError as e:
             raise ValidationError(str(e))
 
     def parse(self):
-        return self.parameter_enum.parse_value(self.parameter_enum_value)
+        return self.enum.parse_value(self.value)
 
 
 class Parameter(models.Model):
@@ -104,12 +104,12 @@ class Parameter(models.Model):
     """
     PLACEHOLDER = '???'
     id = models.AutoField(primary_key=True, db_column='parameter_id')
-    parameter_name = models.CharField(max_length=500, unique=True)
-    parameter_description = models.CharField(max_length=500, blank=True)
-    parameter_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType)
+    name = models.CharField(max_length=500, unique=True, db_column='parameter_name')
+    description = models.CharField(max_length=500, blank=True, db_column='parameter_description')
+    data_type = models.CharField(max_length=max(map(len, ParameterType)), choices=ParameterType, db_column='parameter_data_type')
 
     def __str__(self):
-        return self.parameter_name
+        return self.name
 
     @staticmethod
     def parse_value(typ, value):
@@ -173,19 +173,19 @@ class Parameter(models.Model):
 
 class ParameterGroup(models.Model):
     id = models.AutoField(primary_key=True, db_column='parameter_group_id')
-    parameter_group_name = models.CharField(max_length=500, unique=True)
-    parameter_group_description = models.CharField(max_length=500, blank=True)
+    name = models.CharField(max_length=500, unique=True, db_column='parameter_group_name')
+    description = models.CharField(max_length=500, blank=True, db_column='parameter_group_description')
     parameters = models.ManyToManyField(Parameter, through='ParameterGroupParameter', blank=True)
 
     def __str__(self):
-        return self.parameter_group_name
+        return self.name
 
 
 class ParameterGroupParameter(models.Model):
     id = models.AutoField(primary_key=True, db_column='parameter_group_parameter_id')
-    parameter_group = models.ForeignKey(ParameterGroup, on_delete=models.CASCADE, related_name='parameter_memberships')
-    parameter = models.ForeignKey(Parameter, on_delete=models.CASCADE, related_name='parameter_group_memberships')
-    parameter_enum = models.ForeignKey(ParameterEnum, blank=True, null=True, on_delete=models.PROTECT)
+    parameter_group = models.ForeignKey(ParameterGroup, on_delete=models.CASCADE, related_name='parameter_memberships', db_column=ParameterGroup._meta.pk.column)
+    parameter = models.ForeignKey(Parameter, on_delete=models.CASCADE, related_name='parameter_group_memberships', db_column=Parameter._meta.pk.column)
+    parameter_enum = models.ForeignKey(ParameterEnum, blank=True, null=True, on_delete=models.PROTECT, db_column=ParameterEnum._meta.pk.column)
     parameter_default_value = models.CharField(max_length=500)
 
     class Meta:
@@ -194,20 +194,20 @@ class ParameterGroupParameter(models.Model):
         ]
 
     def __str__(self):
-        return f'{self.parameter_group}->{self.parameter} ({self.parameter_default_value})'
+        return f'{self.parameter_group}->{self.parameter}'
 
     def save(self, *args, **kwargs):
         self.parameter_default_value = Parameter.format_value(
-            self.parameter.parameter_type,
-            Parameter.parse_value(self.parameter.parameter_type, self.parameter_default_value),
+            self.parameter.data_type,
+            Parameter.parse_value(self.parameter.data_type, self.parameter_default_value),
         )
         return super().save(*args, **kwargs)
 
 
 class ParameterValue(models.Model):
     id = models.AutoField(primary_key=True, db_column='parameter_value_id')
-    parameter_group_parameter = models.ForeignKey(ParameterGroupParameter, on_delete=models.CASCADE)
-    parameter_value = models.CharField(max_length=500)
+    definition = models.ForeignKey(ParameterGroupParameter, on_delete=models.CASCADE, db_column=ParameterGroupParameter._meta.pk.column)
+    value = models.CharField(max_length=500, db_column='parameter_value')
 
     class Meta:
         abstract = True
@@ -216,26 +216,23 @@ class ParameterValue(models.Model):
     def parameter_value_constraints(cls, parameterized_model_field_name):
         return [
             models.UniqueConstraint(
-                fields=[parameterized_model_field_name, 'parameter_group_parameter'],
-                name=f'{parameterized_model_field_name}_parameter_group_parameter_alt_key',
+                fields=[parameterized_model_field_name, 'definition'],
+                name=f'{parameterized_model_field_name}_parameter_definition_alt_key',
             ),
         ]
 
     def __str__(self):
-        return f'{self.parameter_group_parameter}, {self.parameter_value}'
+        return f'{self.definition}, {self.value}'
 
     def save(self, *args, **kwargs):
-        self.parameter_value = Parameter.format_value(
-            self.parameter_group_parameter.parameter.parameter_type,
-            Parameter.parse_value(self.parameter_group_parameter.parameter.parameter_type, self.parameter_value),
+        self.value = Parameter.format_value(
+            self.definition.parameter.data_type,
+            Parameter.parse_value(self.definition.parameter.data_type, self.value),
         )
         return super().save(*args, **kwargs)
 
     def parse(self):
-        return Parameter.parse_value(
-            self.parameter_group_parameter.parameter.parameter_type,
-            self.parameter_value,
-        )
+        return Parameter.parse_value(self.definition.parameter.data_type, self.value)
 
 
 class Experiment(models.Model):

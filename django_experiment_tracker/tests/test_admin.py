@@ -53,13 +53,13 @@ def searchable_record_models(transactional_db):
 
 @pytest.fixture
 def searchable_records(db, searchable_record_models):
-    baseline = Tag.objects.create(tag_value='baseline')
-    candidate = Tag.objects.create(tag_value='candidate')
-    optimizer = ParameterGroup.objects.create(parameter_group_name='optimizer')
-    scheduler = ParameterGroup.objects.create(parameter_group_name='scheduler')
+    baseline = Tag.objects.create(value='baseline')
+    candidate = Tag.objects.create(value='candidate')
+    optimizer = ParameterGroup.objects.create(name='optimizer')
+    scheduler = ParameterGroup.objects.create(name='scheduler')
     learning_rate = Parameter.objects.create(
-        parameter_name='learning_rate',
-        parameter_type=ParameterType.FLOAT,
+        name='learning_rate',
+        data_type=ParameterType.FLOAT,
     )
     matching = SearchableRecord.objects.create()
     other_tag = SearchableRecord.objects.create()
@@ -87,10 +87,10 @@ def searchable_records(db, searchable_record_models):
     ):
         RecordConfiguration.objects.create(
             record=record,
-            parameter_group_parameter=(
+            definition=(
                 optimizer_learning_rate if group == optimizer else scheduler_learning_rate
             ),
-            parameter_value=value,
+            value=value,
         )
     return {
         'admin': SearchableRecordAdmin(SearchableRecord, AdminSite()),

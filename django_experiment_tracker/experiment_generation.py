@@ -201,10 +201,10 @@ def get_or_create_experiments(
                         parameter_model(
                             **{
                                 f"{fk_name}_id": experiment.id,
-                                "parameter_group_parameter_id": parameter_group_parameter_ids[
+                                "definition_id": parameter_group_parameter_ids[
                                     (row["parameter_group_name"], row["parameter_name"])
                                 ],
-                                "parameter_value": row["parameter_value"],
+                                "value": row["parameter_value"],
                             }
                         )
                         for row in rows
@@ -229,13 +229,13 @@ def build_parameter_group_sweep(group, substitutes=None):
 
     for membership in group.parameter_memberships.all():
         parameter = membership.parameter
-        key = (group.parameter_group_name, parameter.parameter_name)
+        key = (group.name, parameter.name)
 
         if key in substitutes:
             values = substitutes[key]
         elif membership.parameter_enum_id:
             values = [
-                enum_value.parameter_enum_value
+                enum_value.value
                 for enum_value
                 in membership.parameter_enum.parameterenumvalue_set.all()
             ]
@@ -243,10 +243,10 @@ def build_parameter_group_sweep(group, substitutes=None):
             values = [membership.parameter_default_value]
         if '???' in values:
             raise ValueError(
-                f"{group.parameter_group_name}->{parameter.parameter_name}: "
+                f"{group.name}->{parameter.name}: "
                 "Missing value."
             )
-        choices[key] = dict(values=values, parameter_group_parameter=membership)
+        choices[key] = dict(values=values, definition=membership)
 
     return choices
 
@@ -259,7 +259,7 @@ def build_parameter_sweep(parameter_groups, substitutes=None):
         prefetched_groups = _prefetch_parameters(parameter_groups)
     else:
         prefetched_groups = _prefetch_parameters(ParameterGroup.objects.filter(
-            parameter_group_name__in=[pg.parameter_group_name for pg in parameter_groups],
+            name__in=[pg.name for pg in parameter_groups],
         ))
 
     for group in prefetched_groups:
@@ -275,7 +275,7 @@ def build_parameter_sets(sweep_dict):
             [
                 ((group, parameter), dict(
                     value=value,
-                    parameter_group_parameter=v['parameter_group_parameter'],
+                    definition=v['definition'],
                 ))
                 for value in v['values']
             ]
@@ -289,7 +289,7 @@ def _build_parameter_choices(group, substitutes):
     for choice in build_parameter_group_sweep(group, substitutes).values():
         choices.append(
             [
-                (choice["parameter_group_parameter"], value)
+                (choice["definition"], value)
                 for value in choice["values"]
             ]
         )
@@ -349,11 +349,11 @@ def get_or_create_parameterized_model(
     relation_query_name = _param_query_name(parameter_model, model)
 
     q = Q()
-    for parameter_group_parameter, parameter_value in parameters:
+    for definition, value in parameters:
         q |= Q(
             **{
-                f"{relation_query_name}__parameter_group_parameter": parameter_group_parameter,
-                f"{relation_query_name}__parameter_value": parameter_value,
+                f"{relation_query_name}__definition": definition,
+                f"{relation_query_name}__value": value,
             }
         )
 
@@ -373,13 +373,13 @@ def get_or_create_parameterized_model(
         row = model(**model_kwargs)
         parameter_rows = []
         fk_name = _fk_field_name(parameter_model, model)
-        for parameter_group_parameter, parameter_value in parameters:
+        for definition, value in parameters:
             parameter_rows.append(
                 parameter_model(
                     **{
                         fk_name: row,
-                        "parameter_group_parameter": parameter_group_parameter,
-                        "parameter_value": parameter_value,
+                        "definition": definition,
+                        "value": value,
                     }
                 )
             )

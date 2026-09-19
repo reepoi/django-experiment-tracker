@@ -22,6 +22,15 @@ class ParameterEnumAdmin(admin.ModelAdmin):
     ]
 
 
+@admin.register(models.ParameterGroupParameter)
+class ParameterGroupParameterAdmin(admin.ModelAdmin):
+    search_fields = ['parameter_group__name', 'parameter__name']
+    ordering = ['parameter_group__name', 'parameter__name']
+
+    def has_module_permission(self, request):
+        return False
+
+
 class ParameterGroupInline(admin.TabularInline):
     model = models.ParameterGroupParameter
     min_num = 0
@@ -39,6 +48,18 @@ class ParameterInline(admin.TabularInline):
     model = models.ParameterGroupParameter
     min_num = 0
     extra = 0
+
+
+class ParameterValueAdmin(admin.TabularInline):
+    min_num = 1
+    extra = 0
+    autocomplete_fields = ['definition']
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).order_by(
+            'definition__parameter_group__name',
+            'definition__parameter__name',
+        )
 
 
 @admin.register(models.ParameterGroup)

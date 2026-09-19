@@ -260,8 +260,9 @@ class SharedFile(models.Model):
     git_commit_created = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_created_related', related_query_name='%(app_label)s_%(class)ss_created')
     git_commit_valid_for = models.ForeignKey(GitCommit, on_delete=models.CASCADE, related_name='%(app_label)s_%(class)s_valid_for_related', related_query_name='%(app_label)s_%(class)ss_valid_for')
     time_created = models.DateTimeField(blank=True, auto_now_add=True, db_default=models.functions.Now())
-    shared_file_name = models.CharField(max_length=500)
-    shared_file_description = models.CharField(max_length=500, blank=True)
+    name = models.CharField(max_length=500, db_column='shared_file_name')
+    path = models.CharField(max_length=500, db_column='shared_file_path')
+    description = models.CharField(max_length=500, blank=True, db_column='shared_file_description')
     tags = models.ManyToManyField(Tag, blank=True)
 
     class Meta:

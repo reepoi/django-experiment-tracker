@@ -9,19 +9,6 @@ class GitCommitAdmin(admin.ModelAdmin):
     pass
 
 
-class ParameterEnumValueInline(admin.TabularInline):
-    model = models.ParameterEnumValue
-    min_num = 1
-    extra = 0
-
-
-@admin.register(models.ParameterEnum)
-class ParameterEnumAdmin(admin.ModelAdmin):
-    inlines = [
-        ParameterEnumValueInline,
-    ]
-
-
 @admin.register(models.ParameterGroupParameter)
 class ParameterGroupParameterAdmin(admin.ModelAdmin):
     search_fields = ['parameter_group__name', 'parameter__name']
@@ -31,23 +18,42 @@ class ParameterGroupParameterAdmin(admin.ModelAdmin):
         return False
 
 
-class ParameterGroupInline(admin.TabularInline):
+class ParameterGroupParameterInline(admin.TabularInline):
     model = models.ParameterGroupParameter
     min_num = 0
     extra = 0
+    autocomplete_fields = ['parameter_group', 'parameter', 'parameter_enum']
+
+
+@admin.register(models.ParameterGroup)
+class ParameterGroupAdmin(admin.ModelAdmin):
+    search_fields = ['name']
+    exclude = ('parameters',)
+    inlines = [
+        ParameterGroupParameterInline,
+    ]
 
 
 @admin.register(models.Parameter)
 class ParameterAdmin(admin.ModelAdmin):
+    search_fields = ['name']
     inlines = [
-        ParameterGroupInline,
+        ParameterGroupParameterInline,
     ]
 
 
-class ParameterInline(admin.TabularInline):
-    model = models.ParameterGroupParameter
-    min_num = 0
+class ParameterEnumValueInline(admin.TabularInline):
+    model = models.ParameterEnumValue
+    min_num = 1
     extra = 0
+
+
+@admin.register(models.ParameterEnum)
+class ParameterEnumAdmin(admin.ModelAdmin):
+    search_fields = ['name']
+    inlines = [
+        ParameterEnumValueInline,
+    ]
 
 
 class ParameterValueAdmin(admin.TabularInline):
@@ -60,14 +66,6 @@ class ParameterValueAdmin(admin.TabularInline):
             'definition__parameter_group__name',
             'definition__parameter__name',
         )
-
-
-@admin.register(models.ParameterGroup)
-class ParameterGroupAdmin(admin.ModelAdmin):
-    exclude = ('parameters',)
-    inlines = [
-        ParameterInline,
-    ]
 
 
 @admin.register(models.Tag)

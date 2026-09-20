@@ -3,7 +3,9 @@ import string
 
 from django.core.exceptions import ValidationError
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
 
 
@@ -205,7 +207,32 @@ class ParameterGroupParameter(models.Model):
             self.parameter.data_type,
             Parameter.parse_value(self.parameter.data_type, self.parameter_default_value),
         )
-        return super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
+
+
+@receiver(post_save, sender=ParameterGroupParameter)
+def add_parameters_with_default_value_on_parameter_group_parameter_creation(
+    sender, instance, created, **kwargs,
+):
+    if not created:
+        return
+    with transaction.atomic():
+        parameter_models = [
+            c for c in ParameterValue.__subclasses__() if not c._meta.abstract
+        ]
+        for c in parameter_models:
+            parameterized_model_ids = (
+                c.objects
+                .filter(definition__parameter_group=instance.parameter_group)
+                .values(f'{c._meta.constraints[0].fields[0]}_id')  # assuming ParameterValue.parameter_value_constraints
+                .distinct()
+            )
+            to_create = []
+            for m in parameterized_model_ids:
+                m['definition'] = instance
+                m['value'] = instance.parameter_default_value
+                to_create.append(c(**m))
+            c.objects.bulk_create(to_create)
 
 
 class ParameterValue(models.Model):

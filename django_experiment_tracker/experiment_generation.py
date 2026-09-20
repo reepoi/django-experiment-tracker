@@ -47,6 +47,18 @@ def build_experiment_df(connection, parameter_group_names, derived_enums=None, d
         )
     }
     groups.update(derived_enums)
+
+    if len(groups) == 0:
+        return (
+            base_pgp
+            .select(
+                "parameter_group_name",
+                "parameter_name",
+                parameter_value="parameter_default_value",
+                experiment_id=pl.lit('0'),
+            )
+        )
+
     experiment_parameter_rows = []
     choices = [
         [
